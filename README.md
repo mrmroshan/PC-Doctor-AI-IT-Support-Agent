@@ -169,13 +169,15 @@ Each PC Doctor session uses approximately:
 
 ---
 
-## Roadmap
+## Planned Roadmap (Future Goals)
 
-- Build a packaged Windows installer (`.exe`) with one-click setup
-- Add optional GUI mode for non-technical users
-- Improve diagnostics coverage and remediation playbooks
-- Add automated test scenarios for safer release validation
-- Publish versioned releases and release notes
+The items below are planned targets, not currently completed features.
+
+- Planned: Build a packaged Windows installer (`.exe`) with one-click setup
+- Planned: Add optional GUI mode for non-technical users
+- Planned: Improve diagnostics coverage and remediation playbooks
+- Planned: Add automated test scenarios for safer release validation
+- In progress: Publish versioned releases and release notes
 
 ---
 
