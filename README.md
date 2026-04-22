@@ -1,6 +1,8 @@
 # PC Doctor - AI IT Support Agent
 ### Powered by Claude Code | Supervised Mode
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+
 ---
 
 ## What This Is
@@ -164,6 +166,32 @@ Each PC Doctor session uses approximately:
 - Input: ~15,000-25,000 tokens (diagnostic report + prompts)
 - Output: ~5,000-10,000 tokens (analysis + fixes)
 - Estimated cost: **$0.10 - $0.30 per session** using Claude Sonnet
+
+---
+
+## Roadmap
+
+- Build a packaged Windows installer (`.exe`) with one-click setup
+- Add optional GUI mode for non-technical users
+- Improve diagnostics coverage and remediation playbooks
+- Add automated test scenarios for safer release validation
+- Publish versioned releases and release notes
+
+---
+
+## License
+
+This project is open source under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+If you modify and distribute this software, or run it as a network service, you must share the corresponding source code under the same license.
+
+See the `LICENSE` file for full terms.
+
+Additional project notices are available in `NOTICE`.
+
+Contributions are welcome under the same license; see `CONTRIBUTING.md`.
+
+Security reporting guidance is available in `SECURITY.md`.
 
 ---
 

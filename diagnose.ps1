@@ -1,3 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 Roshan Ruzaik
+# Part of PC Doctor - AI IT Support Agent
+
 # ============================================================
 #  PC DOCTOR - System Diagnostics Collector
 #  Collects comprehensive system health data

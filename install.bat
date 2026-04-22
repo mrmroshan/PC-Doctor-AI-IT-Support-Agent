@@ -1,3 +1,7 @@
+REM SPDX-License-Identifier: AGPL-3.0-only
+REM Copyright (c) 2026 Roshan Ruzaik
+REM Part of PC Doctor - AI IT Support Agent
+
 @echo off
 setlocal EnableDelayedExpansion
 title PC Doctor - AI-Powered IT Support Agent
