@@ -9,11 +9,41 @@
 # ============================================================
 
 param(
-    [string]$OutputPath = "$env:TEMP\pc-doctor\system_report.txt"
+    [string]$OutputPath = "$env:TEMP\pc-doctor\system_report.txt",
+    [string]$CompareWithMetricsPath = "",
+    [switch]$CompareWithBaseline,
+    [switch]$SaveAsBaseline
 )
+
+# If requested, compare this run to the last saved baseline next to the report (pc-doctor_metrics_baseline.json).
+if ($CompareWithBaseline) {
+    $outDirEarly = Split-Path -Parent $OutputPath
+    if (-not [string]::IsNullOrWhiteSpace($outDirEarly)) {
+        $baselineCandidate = Join-Path $outDirEarly "pc-doctor_metrics_baseline.json"
+        if (Test-Path -LiteralPath $baselineCandidate) {
+            if ([string]::IsNullOrWhiteSpace($CompareWithMetricsPath)) {
+                $CompareWithMetricsPath = $baselineCandidate
+            }
+        } else {
+            Write-Host "  [INFO] -CompareWithBaseline: no file at $baselineCandidate (run with -SaveAsBaseline first)." -ForegroundColor Yellow
+        }
+    }
+}
 
 $ErrorActionPreference = "SilentlyContinue"
 $report = @()
+
+# Collected in one pass for JSON export and before/after comparison (no duplicate heavy work).
+$script:volMetrics = @{}
+$script:compareFromJson = $null
+if ($CompareWithMetricsPath -and (Test-Path -LiteralPath $CompareWithMetricsPath)) {
+    try {
+        $raw = Get-Content -LiteralPath $CompareWithMetricsPath -Raw -Encoding UTF8
+        $script:compareFromJson = $raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        $script:compareFromJson = $null
+    }
+}
 
 function Add-Section($title) {
     $script:report += ""
@@ -136,6 +166,13 @@ Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Used -gt 0} | ForEach-Obje
     $used = [math]::Round($_.Used / 1GB, 1)
     $free = [math]::Round($_.Free / 1GB, 1)
     $pct = if ($total -gt 0) { [math]::Round(($used / $total) * 100, 1) } else { 0 }
+    $dk = [string]$_.Name
+    $script:volMetrics[$dk] = [ordered]@{
+        letter      = $dk
+        usedPercent = $pct
+        freeGB      = $free
+        totalGB     = $total
+    }
     Add-Line "Drive $($_.Name):  Total: $total GB  Used: $used GB ($pct%)  Free: $free GB"
     if ($pct -gt 90) {
         Add-Line "  STATUS: [CRITICAL] Drive is nearly full - will cause slowness"
@@ -169,6 +206,12 @@ $recycleBin = (New-Object -ComObject Shell.Application).Namespace(0xA)
 $rbSize = [math]::Round(($recycleBin.Items() | Measure-Object -Property Size -Sum).Sum / 1MB, 1)
 Add-Line "Recycle Bin Size         : $rbSize MB"
 
+$script:storageMetrics = [ordered]@{
+    userTempMB     = $tempSize
+    windowsTempMB  = $winTempSize
+    recycleBinMB   = $rbSize
+}
+
 # ============================================================
 #  SECTION 4B: STORAGE OPTIMIZATION (ANALYZE ONLY)
 #  Read-only: Optimize-Volume -Analyze. No defrag/trim is performed here.
@@ -188,6 +231,10 @@ if (-not $fixedVols) {
 } else {
     foreach ($vol in $fixedVols) {
         $letter = $vol.DriveLetter
+        $lk = [string]$letter
+        if (-not $script:volMetrics.ContainsKey($lk)) {
+            $script:volMetrics[$lk] = [ordered]@{ letter = $lk }
+        }
         $fs = if ($vol.FileSystemType) { $vol.FileSystemType } else { "Unknown" }
         $sizeGB = if ($vol.Size) { [math]::Round($vol.Size / 1GB, 1) } else { 0 }
         $freeGB = if ($vol.SizeRemaining) { [math]::Round($vol.SizeRemaining / 1GB, 1) } else { 0 }
@@ -202,6 +249,10 @@ if (-not $fixedVols) {
                 if ($dsk -and $dsk.PSObject.Properties["MediaType"]) { $media = [string]$dsk.MediaType }
             }
         } catch { }
+        $script:volMetrics[$lk].fileSystem     = $fs
+        $script:volMetrics[$lk].sizeGB          = $sizeGB
+        $script:volMetrics[$lk].freeGB         = $freeGB
+        $script:volMetrics[$lk].mediaType      = $media
 
         Add-Line "Drive ${letter}:\  FS: $fs  Size: $sizeGB GB  Free: $freeGB GB  Backing media: $media"
         if ($part -and $dsk) {
@@ -211,6 +262,7 @@ if (-not $fixedVols) {
         try {
             $an = Optimize-Volume -DriveLetter $letter -Analyze -ErrorAction Stop
         } catch {
+            $script:volMetrics[$lk].analyzeError = $_.Exception.Message
             Add-Line ("  [ANALYZE FAILED] {0}" -f $_.Exception.Message)
             if ($_.Exception.Message -match "Access is denied" -or $_.Exception.Message -match "elevation") {
                 Add-Line "  [HINT] Run the launcher as Administrator for this analysis, or re-run install.bat as Administrator."
@@ -220,6 +272,11 @@ if (-not $fixedVols) {
         }
 
         $frag = $an.FragmentPercent
+        if ($null -ne $frag) {
+            $script:volMetrics[$lk].fragmentPercent = [double]$frag
+        } else {
+            $script:volMetrics[$lk].fragmentPercent = $null
+        }
         if ($null -ne $frag) {
             Add-Line ("  Fragmentation  : {0}%" -f $frag)
         } else {
@@ -507,6 +564,116 @@ $software | Select-Object -First 50 | ForEach-Object {
 }
 
 # ============================================================
+#  METRICS SNAPSHOT + BEFORE/AFTER (for JSON + optional compare)
+# ============================================================
+$volList = @(
+    foreach ($k in ($script:volMetrics.Keys | Sort-Object)) {
+        $script:volMetrics[$k]
+    }
+)
+
+$currentMetrics = [ordered]@{
+    schemaVersion   = 1
+    generatedLocal  = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+    generatedUtc    = (Get-Date).ToUniversalTime().ToString("o")
+    pcDoctorVersion = "1.0"
+    hostname        = $cs.Name
+    cpu             = @{ loadPercent = [double]$cpuLoad }
+    memory          = @{
+        totalGB     = [double]$totalRAM
+        usedGB      = [double]$usedRAM
+        usedPercent = [double]$ramPct
+        freeGB      = [double]$freeRAM
+    }
+    storage         = $script:storageMetrics
+    volumes         = @($volList)
+}
+
+function Get-PCDoctorVolumeFromSnapshot($snapshot, $letter) {
+    if (-not $snapshot -or -not $snapshot.volumes) { return $null }
+    $target = [string]$letter
+    foreach ($v in $snapshot.volumes) {
+        if ($null -eq $v) { continue }
+        if ([string]$v.letter -eq $target) { return $v }
+    }
+    return $null
+}
+
+function Format-MetricDelta($beforeVal, $afterVal, $unit, [int]$dec = 1) {
+    if ($null -eq $beforeVal -or $null -eq $afterVal) { return "n/a" }
+    try {
+        $b = [double]$beforeVal
+        $a = [double]$afterVal
+        $d = [math]::Round($a - $b, $dec)
+        $sign = ""
+        if ($d -gt 0) { $sign = "+" }
+        return ("{0}{1}{2}" -f $sign, $d, $unit)
+    } catch {
+        return "n/a"
+    }
+}
+
+if ($CompareWithMetricsPath) {
+    Add-Section "BEFORE / AFTER METRIC COMPARISON"
+    if (-not $script:compareFromJson) {
+        Add-Line "Compare request failed: the metrics file was missing, unreadable, or not valid JSON."
+        Add-Line ("  Path: {0}" -f $CompareWithMetricsPath)
+    } else {
+        $b = $script:compareFromJson
+        $bTime = if ($b.generatedLocal) { [string]$b.generatedLocal } elseif ($b.generatedUtc) { [string]$b.generatedUtc } else { "unknown" }
+        Add-Line ("Baseline (before) captured: {0}" -f $bTime)
+        Add-Line ("This run (after) captured:      {0}" -f $currentMetrics.generatedLocal)
+        Add-Line ""
+        if ($b.memory -and $currentMetrics.memory) {
+            $mb = $b.memory
+            $ma = $currentMetrics.memory
+            Add-Line "Memory (RAM)"
+            Add-Line ("  Used %     :  {0}%  ->  {1}%  (delta {2})" -f $mb.usedPercent, $ma.usedPercent, (Format-MetricDelta $mb.usedPercent $ma.usedPercent " pp" 1))
+            Add-Line ("  Free GB    :  {0}  ->  {1}  (delta {2})" -f $mb.freeGB, $ma.freeGB, (Format-MetricDelta $mb.freeGB $ma.freeGB " GB" 1))
+        }
+        if ($b.cpu -and $currentMetrics.cpu) {
+            $cb = $b.cpu.loadPercent
+            $ca = $currentMetrics.cpu.loadPercent
+            Add-Line "CPU (snapshot load; noisy metric)"
+            Add-Line ("  Load %     :  {0}%  ->  {1}%  (delta {2})" -f $cb, $ca, (Format-MetricDelta $cb $ca " pp" 1))
+        }
+        if ($b.storage -and $currentMetrics.storage) {
+            $sb = $b.storage
+            $sa = $currentMetrics.storage
+            Add-Line "Space hygiene (MB)"
+            Add-Line ("  User temp  :  {0}  ->  {1}  (delta {2})" -f $sb.userTempMB, $sa.userTempMB, (Format-MetricDelta $sb.userTempMB $sa.userTempMB " MB" 0))
+            Add-Line ("  Win temp   :  {0}  ->  {1}  (delta {2})" -f $sb.windowsTempMB, $sa.windowsTempMB, (Format-MetricDelta $sb.windowsTempMB $sa.windowsTempMB " MB" 0))
+            Add-Line ("  Recycle    :  {0}  ->  {1}  (delta {2})" -f $sb.recycleBinMB, $sa.recycleBinMB, (Format-MetricDelta $sb.recycleBinMB $sa.recycleBinMB " MB" 0))
+        }
+        Add-Line ""
+        Add-Line "Volumes (per drive letter; free space and reported fragmentation when available)"
+        $seen = @{}
+        foreach ($v in $volList) {
+            if ($null -eq $v.letter) { continue }
+            $L = [string]$v.letter
+            if ($seen[$L]) { continue }
+            $seen[$L] = $true
+            $ob = Get-PCDoctorVolumeFromSnapshot $b $L
+            $fBefore = if ($ob -and $null -ne $ob.freeGB) { $ob.freeGB } else { $null }
+            $fAfter  = if ($null -ne $v.freeGB) { $v.freeGB } else { $null }
+            $fbShow = if ($null -ne $fBefore) { [string]$fBefore } else { "n/a" }
+            $faShow = if ($null -ne $fAfter) { [string]$fAfter } else { "n/a" }
+            $fragB = if ($ob) { $ob.fragmentPercent } else { $null }
+            $fragA = $v.fragmentPercent
+            $fbF = if ($null -ne $fragB) { [string]$fragB } else { "n/a" }
+            $faF = if ($null -ne $fragA) { [string]$fragA } else { "n/a" }
+            Add-Line ("  Drive {0}:\  free GB   {1}  ->  {2}  (delta {3})" -f $L, $fbShow, $faShow, (Format-MetricDelta $fBefore $fAfter " GB" 1))
+            if ($null -ne $fragB -or $null -ne $fragA) {
+                Add-Line ("           frag %    {0}  ->  {1}  (delta {2})" -f $fbF, $faF, (Format-MetricDelta $fragB $fragA " pp" 1))
+            }
+        }
+        Add-Line ""
+        Add-Line "Note: take a new baseline with -SaveAsBaseline on the first run of a maintenance window, then re-run this script with -CompareWithMetricsPath to compare after changes."
+    }
+    Add-Line ""
+}
+
+# ============================================================
 #  WRITE REPORT
 # ============================================================
 Add-Section "END OF DIAGNOSTIC REPORT"
@@ -516,5 +683,24 @@ Add-Line "PC Doctor v1.0 - AI IT Support Agent"
 $outputDir = Split-Path $OutputPath -Parent
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
 
+$jsonPath     = Join-Path $outputDir "pc-doctor_metrics.json"
+$baselinePath = Join-Path $outputDir "pc-doctor_metrics_baseline.json"
+
 $report | Out-File -FilePath $OutputPath -Encoding UTF8 -Force
 Write-Host "  Diagnostic report saved to: $OutputPath" -ForegroundColor Green
+
+try {
+    $currentMetrics | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+    Write-Host "  Metrics JSON saved to:      $jsonPath" -ForegroundColor Green
+} catch {
+    Write-Host "  [WARNING] Could not write metrics JSON: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+if ($SaveAsBaseline) {
+    try {
+        $currentMetrics | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $baselinePath -Encoding UTF8
+        Write-Host "  Baseline metrics saved to:  $baselinePath" -ForegroundColor Green
+    } catch {
+        Write-Host "  [WARNING] Could not write baseline JSON: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}

@@ -116,10 +116,30 @@ Agent: "▶ Running cleanup..."
 
 All files are saved to the project `outputs\` folder (same folder as `install.bat`):
 - `system_report.txt` — Full diagnostic data
+- `pc-doctor_metrics.json` — Machine-readable snapshot of key health numbers from the latest run (drives, RAM, temps, and so on) for diffs
+- `pc-doctor_metrics_baseline.json` — Only when you use `-SaveAsBaseline` in `diagnose.ps1` (a “before” reference for the next run)
 - `console_output.txt` — Launcher/runtime log
 - `console_transcript_YYYY-MM-DD_HH-mm-ss.txt` — Session conversation transcript
 - `session_report_YYYY-MM-DD_HH-mm-ss.txt` — End-of-session action report
 - `init_message_YYYY-MM-DD_HH-mm-ss.txt` — Startup instructions sent to the agent
+
+### Before / after comparison (optional)
+
+1. **Capture a “before” baseline** (Administrator CMD or PowerShell, from the same folder as `diagnose.ps1`):
+
+```text
+powershell.exe -ExecutionPolicy Bypass -File diagnose.ps1 -OutputPath outputs\system_report.txt -SaveAsBaseline
+```
+
+2. Apply fixes in the PC Doctor session (or manually), then run diagnostics again **with a comparison** to a prior metrics file, for example the baseline:
+
+```text
+powershell.exe -ExecutionPolicy Bypass -File diagnose.ps1 -OutputPath outputs\system_report.txt -CompareWithBaseline
+```
+
+To compare with any saved metrics file (for example a copy of `pc-doctor_metrics.json` from last week), use **`-CompareWithMetricsPath`**.
+
+The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a valid baseline JSON is loaded.
 
 ---
 
@@ -179,6 +199,7 @@ The items below are planned targets, not currently completed features.
 - Planned: Improve diagnostics coverage and remediation playbooks
 - Planned: Add automated test scenarios for safer release validation
 - In progress: Publish versioned releases and release notes
+- Shipped: Before/after metric comparison via `pc-doctor_metrics.json` and optional baseline in `diagnose.ps1` (see above)
 
 ---
 
