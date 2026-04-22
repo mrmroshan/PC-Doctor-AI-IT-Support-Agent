@@ -9,6 +9,7 @@
 
 PC Doctor is an AI-powered IT helpdesk agent that runs on any Windows PC. It:
 - Diagnoses the system automatically (CPU, RAM, disk, drivers, security, etc.)
+- **Writes a metrics snapshot** (`pc-doctor_metrics.json`) every diagnostic run, with optional **before/after** comparison (baseline + compare flags on `diagnose.ps1` — see [Files created → Before / after](#files-created-during-session))
 - Reports **read-only** storage optimization data (fragmentation/trim analysis via `Optimize-Volume -Analyze`); defrag/trim only runs if you approve the suggested command in the supervised session
 - Identifies issues ranked by severity
 - Proposes fixes with full explanation
@@ -17,6 +18,17 @@ PC Doctor is an AI-powered IT helpdesk agent that runs on any Windows PC. It:
 - Moves to the next issue
 
 Think of it as a senior IT engineer sitting next to you, walking through the system step by step.
+
+### Project documentation (this repo)
+
+| File | Purpose |
+|------|--------|
+| `LICENSE` | AGPL-3.0 full terms |
+| `NOTICE` | Copyright and attribution |
+| `CONTRIBUTING.md` | How to contribute and PR expectations |
+| `SECURITY.md` | How to report security issues |
+| `CHANGELOG.md` | Notable changes between versions |
+| `agent_prompt.md` | Agent persona and safety rules (loaded for the session) |
 
 ---
 
@@ -141,6 +153,17 @@ To compare with any saved metrics file (for example a copy of `pc-doctor_metrics
 
 The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a valid baseline JSON is loaded.
 
+`diagnose.ps1` **parameters** (all optional except paths you care about):
+
+| Parameter | Meaning |
+|----------|--------|
+| `-OutputPath` | Where to write `system_report.txt` (default: under `%TEMP%`) |
+| `-SaveAsBaseline` | Also write `pc-doctor_metrics_baseline.json` next to that report |
+| `-CompareWithMetricsPath` | Path to a previous `pc-doctor_metrics.json` (or copy) to diff against |
+| `-CompareWithBaseline` | Shorthand: compare to `pc-doctor_metrics_baseline.json` in the same folder as `-OutputPath` |
+
+**Note:** CPU load and fragmentation are moment-in-time values — best used as hints. Free space, temp/recycle sizes, and RAM pressure tend to be the most meaningful before/after deltas.
+
 ---
 
 ## Safety Notes
@@ -190,16 +213,21 @@ Each PC Doctor session uses approximately:
 
 ---
 
+## Current capabilities (recent)
+
+- **Diagnostics:** `diagnose.ps1` collects the full system report and optional [before/after](#files-created-during-session) metrics
+- **Storage (analyze-only):** per-volume `Optimize-Volume -Analyze` with HDD vs SSD-aware suggestions (remediation only after you approve in the agent session)
+- **Releases:** version tags (e.g. `v1.0.0`) and release notes; see `CHANGELOG.md` and `RELEASE_NOTES_v1.0.0.md` on the repo
+
 ## Planned Roadmap (Future Goals)
 
-The items below are planned targets, not currently completed features.
+The items below are **planned** targets, not a promise of completion date.
 
 - Planned: Build a packaged Windows installer (`.exe`) with one-click setup
 - Planned: Add optional GUI mode for non-technical users
 - Planned: Improve diagnostics coverage and remediation playbooks
 - Planned: Add automated test scenarios for safer release validation
-- In progress: Publish versioned releases and release notes
-- Shipped: Before/after metric comparison via `pc-doctor_metrics.json` and optional baseline in `diagnose.ps1` (see above)
+- In progress: Habitual versioned GitHub releases for each tagged version
 
 ---
 
