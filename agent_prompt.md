@@ -47,6 +47,7 @@ You have access to PowerShell, CMD, and the internet via web search tools.
 - Use PowerShell or CMD — pick whichever is appropriate
 - For driver updates: use `winget` where possible, otherwise find official vendor URL and instruct user
 - For disk issues: use `chkdsk`, `sfc /scannow`, `DISM` — always explain what each does
+- For storage optimization: use `Optimize-Volume` — **analyze** is read-only; **-Defrag** is for **HDD**-backed volumes when fragmentation is high; **-ReTrim** is the default maintenance for **SSD/flash**. Never defrag an SSD for “old habit” without confirming the volume is on spinning media; on NTFS, Windows may schedule a safe “optimize” for SSDs (including retrim) — that is not the same as a blind defrag
 - For startup items: only disable, never delete (use `reg` or Task Manager commands)
 - For temp files: safe to delete without restart
 - For registry changes: export backup first, always
@@ -71,6 +72,7 @@ When you read the system_report.txt, analyze issues in this priority order:
 ### PRIORITY 2 — PERFORMANCE ISSUES
 - High CPU or RAM usage from specific processes
 - Excessive startup programs
+- High fragmentation on **HDD** volumes (suggest `Optimize-Volume` defrag only after analysis + user approval) or **SSD** maintenance (prefer `ReTrim` / Storage Optimizer — not a classic all-disks defrag)
 - Large temp folders (> 500MB)
 - Page file misconfiguration
 - Power plan set to Power Saver on a desktop

@@ -170,6 +170,100 @@ $rbSize = [math]::Round(($recycleBin.Items() | Measure-Object -Property Size -Su
 Add-Line "Recycle Bin Size         : $rbSize MB"
 
 # ============================================================
+#  SECTION 4B: STORAGE OPTIMIZATION (ANALYZE ONLY)
+#  Read-only: Optimize-Volume -Analyze. No defrag/trim is performed here.
+# ============================================================
+Write-Host "  Analyzing storage optimization (fragmentation/trim)..." -ForegroundColor Cyan
+Add-Section "STORAGE OPTIMIZATION (ANALYZE -- FRAGMENTATION / TRIM)"
+Add-Line "This section runs read-only analysis (PowerShell: Optimize-Volume -Analyze)."
+Add-Line "It does not defragment, retrim, or change volumes. Suggested fix commands are for the supervised session only."
+Add-Line ""
+
+$fixedVols = Get-Volume -ErrorAction SilentlyContinue | Where-Object {
+    $null -ne $_.DriveLetter -and $_.DriveType -eq "Fixed" -and $_.Size -gt 0
+} | Sort-Object { $_.DriveLetter }
+
+if (-not $fixedVols) {
+    Add-Line "No fixed volumes with drive letters were found to analyze."
+} else {
+    foreach ($vol in $fixedVols) {
+        $letter = $vol.DriveLetter
+        $fs = if ($vol.FileSystemType) { $vol.FileSystemType } else { "Unknown" }
+        $sizeGB = if ($vol.Size) { [math]::Round($vol.Size / 1GB, 1) } else { 0 }
+        $freeGB = if ($vol.SizeRemaining) { [math]::Round($vol.SizeRemaining / 1GB, 1) } else { 0 }
+
+        $part = $null
+        $dsk = $null
+        $media = "Unknown"
+        try {
+            $part = Get-Partition -DriveLetter $letter -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($part) {
+                $dsk = Get-Disk -Number $part.DiskNumber -ErrorAction SilentlyContinue
+                if ($dsk -and $dsk.PSObject.Properties["MediaType"]) { $media = [string]$dsk.MediaType }
+            }
+        } catch { }
+
+        Add-Line "Drive ${letter}:\  FS: $fs  Size: $sizeGB GB  Free: $freeGB GB  Backing media: $media"
+        if ($part -and $dsk) {
+            Add-Line ("  Partition #{0}  Disk# {1}  {2}" -f $part.PartitionNumber, $dsk.Number, $dsk.FriendlyName)
+        }
+
+        try {
+            $an = Optimize-Volume -DriveLetter $letter -Analyze -ErrorAction Stop
+        } catch {
+            Add-Line ("  [ANALYZE FAILED] {0}" -f $_.Exception.Message)
+            if ($_.Exception.Message -match "Access is denied" -or $_.Exception.Message -match "elevation") {
+                Add-Line "  [HINT] Run the launcher as Administrator for this analysis, or re-run install.bat as Administrator."
+            }
+            Add-Line ""
+            continue
+        }
+
+        $frag = $an.FragmentPercent
+        if ($null -ne $frag) {
+            Add-Line ("  Fragmentation  : {0}%" -f $frag)
+        } else {
+            Add-Line "  Fragmentation  : (not reported by this volume)"
+        }
+
+        $fragN = if ($null -ne $frag) { [double]$frag } else { $null }
+        $isHdd = ($media -eq "HDD")
+        $isSsd = ($media -eq "SSD" -or $media -eq "SCM")
+        $isUnknownMedia = ($media -eq "Unspecified" -or $media -eq "Unknown")
+
+        if ($isHdd) {
+            if ($null -ne $fragN -and $fragN -ge 10) {
+                Add-Line "  STATUS         : [WARNING] High fragmentation for an HDD; scheduled defrag/optimize can help I/O."
+            } elseif ($null -ne $fragN -and $fragN -ge 5) {
+                Add-Line "  STATUS         : [INFO] Moderate fragmentation; consider optimize during off-hours."
+            } else {
+                Add-Line "  STATUS         : [OK] Fragmentation is not elevated for a typical hard disk check."
+            }
+        } elseif ($isSsd) {
+            Add-Line "  STATUS         : [INFO] On SSD/flash, prefer trim/retrim. Windows may still run a scheduled optimize for NTFS; follow Storage Optimizer guidance, not an old defrag-for-all habit."
+        } else {
+            if ($null -ne $fragN -and $fragN -ge 10) {
+                Add-Line "  STATUS         : [INFO] Fragmentation is reported as high, but media type is unknown. Confirm HDD vs SSD in Disk Management before defrag; SSDs use trim instead."
+            } else {
+                Add-Line "  STATUS         : [INFO] Media is Unspecified/unknown. Use Disk Management or Storage properties to identify HDD vs SSD, then follow HDD (defrag) or SSD (retrim) guidance below."
+            }
+        }
+
+        if ($isHdd -and $null -ne $fragN -and $fragN -ge 10) {
+            Add-Line "  SUGGESTED FIX  : (after user approves)  Optimize-Volume -DriveLetter $letter -Defrag -Verbose"
+        } elseif ($isSsd) {
+            Add-Line "  SUGGESTED FIX  : (after user approves)  Optimize-Volume -DriveLetter $letter -ReTrim -Verbose"
+        } elseif ($isUnknownMedia) {
+            Add-Line "  SUGGESTED FIX  : (after user approves) if confirmed HDD: -Defrag; if confirmed SSD: -ReTrim. Example: Optimize-Volume -DriveLetter $letter -Analyze -Verbose; then the matching action only after confirmation."
+        }
+
+        Add-Line ""
+    }
+}
+Add-Line "To analyze again manually:  Optimize-Volume -DriveLetter <Letter> -Analyze -Verbose"
+Add-Line 'HDD: use -Defrag on spinning disks when fragmentation is high. SSD/flash: use -ReTrim; Windows 10/11 may schedule optimize for NTFS (including retrim) — that is not the same as a classic "defrag everything" habit.'
+
+# ============================================================
 #  SECTION 5: STARTUP PROGRAMS
 # ============================================================
 Write-Host "  Checking startup programs..." -ForegroundColor Cyan

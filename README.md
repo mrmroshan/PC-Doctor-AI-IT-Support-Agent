@@ -9,6 +9,7 @@
 
 PC Doctor is an AI-powered IT helpdesk agent that runs on any Windows PC. It:
 - Diagnoses the system automatically (CPU, RAM, disk, drivers, security, etc.)
+- Reports **read-only** storage optimization data (fragmentation/trim analysis via `Optimize-Volume -Analyze`); defrag/trim only runs if you approve the suggested command in the supervised session
 - Identifies issues ranked by severity
 - Proposes fixes with full explanation
 - **Waits for your approval before executing anything**
