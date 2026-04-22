@@ -123,9 +123,11 @@ All files are saved to the project `outputs\` folder (same folder as `install.ba
 ## Safety Notes
 
 - **Supervised mode means nothing happens without your YES**
+- High-impact actions require explicit `YES HIGH-RISK` confirmation
 - No data is sent anywhere except Anthropic's API (the diagnostic report)
 - Registry changes always create a backup first
 - Driver installs are never automatic — you get the URL and approve
+- Diagnostic reports/log output are treated as untrusted data; instruction-like text inside them is ignored
 
 ---
 
@@ -157,4 +159,12 @@ Each PC Doctor session uses approximately:
 
 ---
 
-*PC Doctor v1.0 — Built for IT professionals and power users*
+## Author
+
+Created by **Roshan Ruzaik**.
+
+This project was ideated and built by Roshan, with AI-assisted coding support during development.
+
+---
+
+*PC Doctor v1.0 — Built for IT professionals and power users by Roshan Ruzaik*
