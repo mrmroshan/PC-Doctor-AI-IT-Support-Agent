@@ -131,6 +131,14 @@ All files are saved to the project `outputs\` folder (same folder as `install.ba
 
 ---
 
+## Security Hardening
+
+- **Prompt-injection defense:** report/log content is treated as untrusted data, not executable instructions
+- **Execution safety controls:** strict approval workflow with `YES`, `SKIP`, and `ABORT`
+- **High-risk action gate:** sensitive operations require explicit `YES HIGH-RISK` confirmation
+
+---
+
 ## Troubleshooting
 
 **"claude is not recognized"**
