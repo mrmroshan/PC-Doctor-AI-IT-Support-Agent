@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **`.gitattributes`:** `*.bat` and `*.cmd` use CRLF on checkout so `cmd.exe` does not mis-parse LF-only batch files
 - **Session usage estimates for technicians:** `session_usage_estimate.ps1` runs after each `install.bat` session and writes `session_usage_estimate_<run-stamp>.txt` (approximate token counts from report/prompt/init/transcript and a USD band). Optional `pc-doctor-pricing.env` overrides per-million-token rates; defaults are clearly labeled as non-authoritative vs Anthropic Console billing
 - **HTML diagnostic report:** `diagnose.ps1` writes `system_report.html` next to `system_report.txt` (sticky sidebar TOC, section cards, scrollable `<pre>` blocks, highlighted `[OK]` / `[WARNING]` / `[CRITICAL]` / `[!]` tags). Use `-NoHtml` to skip. `install.bat` prints the path when the file exists.
 - **Post-restart session resume:** `register_reboot_resume.cmd`, `pc_doctor_resume.cmd`, `install.bat --register-reboot` and `--clear-reboot-hook` (one-time `RunOnce` under the current user); `install.bat --post-restart` relaunches the agent after logon with a fresh `system_report.txt` and `outputs\resume_bootstrap.txt` pointing at the latest pre-reboot `session_report_*.txt` and `console_transcript_*.txt` for handoff
@@ -22,13 +23,17 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- `install.bat`: `:Log` now uses a proper `if defined CONSOLE_LOG (` … `)` block for appending to the launcher log (the old one-line `if … >> … echo` form broke `cmd` parsing)
+- `install.bat`: optional `local.secrets.env` loading moved to `:LoadSecrets` so nested `setlocal` / `endlocal` cannot accidentally pop the main launcher scope and wipe paths
+- `install.bat` / `pc_doctor_resume.cmd` / `register_reboot_resume.cmd`: normalized to **CRLF** line endings for reliable parsing on Windows
 - `install.bat`: `:REGISTER_REBOOT` now saves `ERRORLEVEL` immediately after PowerShell (before `set PC_REBOOT_TGT=`), so a failed `RunOnce` registration is detected instead of being masked
 - `install.bat`: capture Claude exit code before running the usage-estimate script so ERRORLEVEL is not lost; run usage estimates even when Claude exits non-zero; use delayed expansion when checking for zero-byte `system_report.txt`
 - `session_usage_estimate.ps1`: validate `WorkDir`; avoid pricing file overwriting explicit `-InputUsdPerMtok` / `-OutputUsdPerMtok`; skip malformed `KEY` lines without `=`; use `[long]` token counts for large reports
 
 ### Changed
 
-- `README.md`: project documentation table, `diagnose.ps1` parameters, current capabilities, portable / `system_report` behavior, post-restart resume, `install.bat` option reference, and cross-links
-- `CONTRIBUTING.md`: “Documentation” section (doc-update skill)
+- `agent_prompt.md`: **SESSION TRANSCRIPT FILE** rules—the agent must append **verbatim** user and assistant text after each turn (full audit trail); session report may still summarize
+- `install.bat`: init message and `INIT_PROMPT` stress verbatim transcript logging per `agent_prompt.md`
+- `README.md` / `CONTRIBUTING.md`: transcript audit-trail expectations, CRLF / batch troubleshooting, contributor note on line endings
 - License migrated from MIT to AGPL-3.0 in `LICENSE`
 - `README.md` license section updated for AGPL obligations

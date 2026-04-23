@@ -167,7 +167,7 @@ All files are saved to the project `outputs\` folder (same folder as `install.ba
 - `pc-doctor_metrics.json` — Machine-readable snapshot of key health numbers from the latest run (drives, RAM, temps, and so on) for diffs
 - `pc-doctor_metrics_baseline.json` — Only when you use `-SaveAsBaseline` in `diagnose.ps1` (a “before” reference for the next run)
 - `console_output.txt` — Launcher/runtime log
-- `console_transcript_YYYY-MM-DD_HH-mm-ss.txt` — Session conversation transcript
+- `console_transcript_YYYY-MM-DD_HH-mm-ss.txt` — Session conversation **audit trail** (see **SESSION TRANSCRIPT FILE** in `agent_prompt.md`): the agent should append **verbatim** user and assistant text after each turn. Compliance is prompt-driven (not automatic TTY capture); the end-of-session report may still summarize.
 - `session_report_YYYY-MM-DD_HH-mm-ss.txt` — End-of-session action report
 - `init_message_YYYY-MM-DD_HH-mm-ss.txt` — Startup instructions sent to the agent
 - `session_usage_estimate_YYYY-MM-DD_HH-mm-ss.txt` — **Estimated** token volume and USD range for the session (heuristic; real usage is in the Anthropic Console)
@@ -243,6 +243,9 @@ The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a val
 
 **"Access denied" on PowerShell**
 → Make sure install.bat was launched via right-click → Run as Administrator
+
+**Weird errors when running `install.bat`** (for example `'cho' is not recognized`, `'else' is not recognized`, empty paths, or `''` is not a command)
+→ Windows **`cmd.exe` expects CRLF** in `.bat` / `.cmd` files. If an editor saved them with LF-only, parsing breaks. This repo’s **`.gitattributes`** keeps `*.bat` and `*.cmd` as CRLF on clone/checkout; re-save launchers with CRLF or run `git checkout -- install.bat pc_doctor_resume.cmd register_reboot_resume.cmd` after pull.
 
 **Diagnostic takes too long**
 → SFC /verifyonly can be slow on older systems. Wait up to 5 minutes.

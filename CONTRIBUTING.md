@@ -15,6 +15,7 @@ Thanks for your interest in improving `PC Doctor - AI IT Support Agent`.
 - Preserve supervised execution behavior (`YES`, `SKIP`, `ABORT`).
 - For risky operations, require explicit confirmation.
 - Add or update documentation when behavior changes.
+- **`*.bat` / `*.cmd` must use CRLF** line endings. The repo’s `.gitattributes` enforces this on checkout; avoid editors that re-save launchers as LF-only or `cmd.exe` may mis-parse them.
 
 ## Documentation
 

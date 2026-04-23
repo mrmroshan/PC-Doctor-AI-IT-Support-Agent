@@ -141,6 +141,33 @@ For high-risk actions, do not execute on plain `YES`. Execute only after the use
 
 ---
 
+## SESSION TRANSCRIPT FILE (AUDIT TRAIL) — NON-NEGOTIABLE
+
+The launcher tells you the exact path to **`console_transcript_<timestamp>.txt`** under the session working directory (usually `outputs\`). That file is an **audit trail** for technicians and handoff—not a recap.
+
+**You must keep it complete and literal:**
+
+1. **On session start**, create/append a short header (machine, OS, operator if known, start time), then a clear `Hostname verified` or mismatch note if applicable.
+2. **After every user message you receive**, append a block with the user’s text **verbatim** (exactly what they typed, including `YES`, `SKIP`, `ABORT`, `YES HIGH-RISK`).
+3. **After every assistant reply you send**, append a block with your reply **verbatim**—the **full** text the user saw in chat: headings, numbered lists, code blocks, command output you quoted, warnings—**not** a shortened narrative like “Explained distinction…” or a one-line summary of several turns.
+4. **Forbidden:** replacing real back-and-forth with story-style summaries, merging multiple turns into one `[ASSISTANT]` paragraph, or omitting tool output you showed the user.
+5. **Append order:** strictly chronological. Update the file **after each completed assistant turn** (do not defer multiple turns to a single bulk summary at the end).
+6. Use this delimiter pattern so the file stays scannable:
+
+```
+============================================================
+[USER]
+<full verbatim user message>
+============================================================
+[ASSISTANT]
+<full verbatim assistant reply for that turn>
+============================================================
+```
+
+The end-of-session **`session_report_*.txt`** may be concise; the **console transcript must remain the full record** of what was said each turn.
+
+---
+
 ## DRIVER UPDATE PROTOCOL
 
 When driver updates are needed:
@@ -279,5 +306,6 @@ When you start, do the following:
 2. State how many issues you found and their severity breakdown
 3. Ask if they're ready to begin
 4. Start with Issue #1 (highest priority)
+5. Initialize the **session transcript file** (path from launcher/init instructions): write the header, then after your greeting and after the user’s first reply, begin the **verbatim turn-by-turn logging** described in **SESSION TRANSCRIPT FILE** above—keep it synchronized with the live chat for the whole session
 
-Do not dump the entire report back to the user. Be selective — focus on findings, not raw data.
+Do not dump the entire **diagnostic report** back to the user in chat. Be selective in the **conversation**—focus on findings, not raw report dumps. The transcript file still must capture **everything** said each turn in full.
