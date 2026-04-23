@@ -290,7 +290,7 @@ if not exist "%REPORT_PATH%" (
     exit /b 1
 )
 for %%I in ("%REPORT_PATH%") do set "REPORT_SIZE=%%~zI"
-if "%REPORT_SIZE%"=="0" (
+if "!REPORT_SIZE!"=="0" (
     echo  [ERROR] Diagnostic report file is empty: %REPORT_PATH%
     echo  This usually means diagnostics failed mid-run.
     echo  Re-run install.bat and choose to regenerate the report.
@@ -301,6 +301,10 @@ if "%REPORT_SIZE%"=="0" (
 :REPORT_READY
 echo  [OK] System report ready: %REPORT_PATH%
 call :Log "[OK] System report ready: %REPORT_PATH%"
+if exist "%WORK_DIR%\system_report.html" (
+    echo  [TIP] Human-readable HTML report: %WORK_DIR%\system_report.html
+    call :Log "[OK] HTML report available: %WORK_DIR%\system_report.html"
+)
 echo.
 
 :: ============================================================
@@ -389,16 +393,7 @@ if "!PC_DOCTOR_POST_RESTART!"=="1" (
 
 :: IMPORTANT: Do not redirect stdin here; Claude's interactive UI requires raw TTY input.
 claude "%INIT_PROMPT%"
-if errorlevel 1 (
-    echo.
-    echo  [ERROR] Claude exited unexpectedly.
-    echo  Try one of these:
-    echo    1^) Check key in local.secrets.env (ANTHROPIC_API_KEY=sk-ant-...)
-    echo    2^) Run: claude auth login
-    echo    3^) Run: claude -p "Respond only with: OK"
-    pause
-    exit /b 1
-)
+set "CLAUDE_EXIT=!ERRORLEVEL!"
 
 if not exist "%TRANSCRIPT_FILE%" (
     call :Log "[WARNING] Transcript file not found after session: %TRANSCRIPT_FILE%"
@@ -409,6 +404,27 @@ if not exist "%SESSION_REPORT_FILE%" (
     call :Log "[WARNING] Session report file not found after session: %SESSION_REPORT_FILE%"
 ) else (
     call :Log "[OK] Session report file created: %SESSION_REPORT_FILE%"
+)
+
+set "USAGE_SCRIPT=%PROJECT_DIR%session_usage_estimate.ps1"
+if exist "%USAGE_SCRIPT%" (
+    echo.
+    echo  [INFO] Session usage estimates (for technicians^)...
+    powershell.exe -ExecutionPolicy Bypass -File "%USAGE_SCRIPT%" -WorkDir "%WORK_DIR%" -RunStamp "%RUNSTAMP%"
+    call :Log "[OK] Wrote session_usage_estimate_%RUNSTAMP%.txt (estimates only; verify billing in Anthropic Console^)"
+) else (
+    call :Log "[WARNING] session_usage_estimate.ps1 not found; skipped usage summary."
+)
+
+if not "!CLAUDE_EXIT!"=="0" (
+    echo.
+    echo  [ERROR] Claude exited unexpectedly ^(exit code: !CLAUDE_EXIT!^).
+    echo  Try one of these:
+    echo    1^) Check key in local.secrets.env (ANTHROPIC_API_KEY=sk-ant-...)
+    echo    2^) Run: claude auth login
+    echo    3^) Run: claude -p "Respond only with: OK"
+    pause
+    exit /b !CLAUDE_EXIT!
 )
 
 echo.
@@ -466,8 +482,9 @@ if not exist "%PC_REBOOT_TGT%" (
   exit /b 1
 )
 powershell -NoProfile -Command "try { $p = (Get-Item -LiteralPath $env:PC_REBOOT_TGT -ErrorAction Stop).FullName; $q = [char]34 + $p + [char]34; Set-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce' -Name 'PCDoctorSessionResume' -Value $q -Type String -Force; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }"
+set "REG_HOOK_EC=!ERRORLEVEL!"
 set "PC_REBOOT_TGT="
-if errorlevel 1 (
+if not "!REG_HOOK_EC!"=="0" (
   echo  [ERROR] Could not add RunOnce entry. Check that this account can write to HKCU.
   exit /b 1
 )

@@ -65,6 +65,8 @@ You have access to PowerShell, CMD, and the internet via web search tools.
 
 ## ANALYSIS FRAMEWORK
 
+A human-readable **`system_report.html`** may exist beside `system_report.txt` (same content, easier to browse). Prefer reading **`system_report.txt`** for analysis so line layout matches what tooling expects; use the HTML only if the user asks for the browser view.
+
 When you read the system_report.txt, analyze issues in this priority order:
 
 ### PRIORITY 1 — CRITICAL (Address First)

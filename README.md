@@ -83,6 +83,8 @@ Make sure these files are in the same folder:
     diagnose.ps1
     agent_prompt.md
     local.secrets.env.example
+    pc-doctor-pricing.env.example   (optional; copy to pc-doctor-pricing.env for cost estimates)
+    session_usage_estimate.ps1
 ```
 
 ---
@@ -160,13 +162,15 @@ Agent: "▶ Running cleanup..."
 ## Files Created During Session
 
 All files are saved to the project `outputs\` folder (same folder as `install.bat`):
-- `system_report.txt` — Full diagnostic data
+- `system_report.txt` — Full diagnostic data (used by the AI agent)
+- `system_report.html` — Same report as a **navigable** single-page HTML (sidebar table of contents, section anchors, syntax highlighting for status tags). Generated beside the `.txt` unless you pass `-NoHtml` to `diagnose.ps1`
 - `pc-doctor_metrics.json` — Machine-readable snapshot of key health numbers from the latest run (drives, RAM, temps, and so on) for diffs
 - `pc-doctor_metrics_baseline.json` — Only when you use `-SaveAsBaseline` in `diagnose.ps1` (a “before” reference for the next run)
 - `console_output.txt` — Launcher/runtime log
 - `console_transcript_YYYY-MM-DD_HH-mm-ss.txt` — Session conversation transcript
 - `session_report_YYYY-MM-DD_HH-mm-ss.txt` — End-of-session action report
 - `init_message_YYYY-MM-DD_HH-mm-ss.txt` — Startup instructions sent to the agent
+- `session_usage_estimate_YYYY-MM-DD_HH-mm-ss.txt` — **Estimated** token volume and USD range for the session (heuristic; real usage is in the Anthropic Console)
 - `resume_bootstrap.txt` — Only when a session is started by the post-restart hook: paths to the latest prior `session_report_*.txt` and `console_transcript_*.txt` for handoff
 
 ### Before / after comparison (optional)
@@ -195,6 +199,7 @@ The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a val
 | `-SaveAsBaseline` | Also write `pc-doctor_metrics_baseline.json` next to that report |
 | `-CompareWithMetricsPath` | Path to a previous `pc-doctor_metrics.json` (or copy) to diff against |
 | `-CompareWithBaseline` | Shorthand: compare to `pc-doctor_metrics_baseline.json` in the same folder as `-OutputPath` |
+| `-NoHtml` | Do not write `system_report.html` (text and JSON are still written) |
 
 **Note:** CPU load and fragmentation are moment-in-time values — best used as hints. Free space, temp/recycle sizes, and RAM pressure tend to be the most meaningful before/after deltas.
 
@@ -244,18 +249,37 @@ The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a val
 
 ---
 
-## Cost Estimate
+## Cost and token estimates (technicians)
 
-Each PC Doctor session uses approximately:
-- Input: ~15,000-25,000 tokens (diagnostic report + prompts)
-- Output: ~5,000-10,000 tokens (analysis + fixes)
-- Estimated cost: **$0.10 - $0.30 per session** using Claude Sonnet
+**After each session**, `install.bat` runs `session_usage_estimate.ps1`, which writes **`session_usage_estimate_<run-stamp>.txt`** in `outputs\`. It includes:
+
+- Approximate **input** tokens from `system_report.txt`, `agent_prompt.md`, and the session `init_message` (plus a small nominal CLI overhead)
+- Approximate **output** band derived from the **transcript** size and `[USER]` turn count (heuristic)
+- A **lower / upper USD band** using per-million-token rates (defaults are placeholder Sonnet-class numbers)
+
+**These numbers are not billed amounts.** Claude Code may compact or cache context; use your **Anthropic Console** (usage / invoices) for authoritative token and cost data.
+
+**Customize rates:** copy `pc-doctor-pricing.env.example` to **`pc-doctor-pricing.env`** in the project folder and set `PC_DOCTOR_INPUT_USD_PER_MTOK` and `PC_DOCTOR_OUTPUT_USD_PER_MTOK` to match [current Anthropic pricing](https://docs.anthropic.com/en/docs/about-claude/pricing) for the model you use.
+
+You can also run the script manually:
+
+```text
+powershell.exe -ExecutionPolicy Bypass -File session_usage_estimate.ps1 -WorkDir outputs -RunStamp 2026-04-23_12-00-00
+```
+
+### Rule-of-thumb (legacy)
+
+Rough order of magnitude if you do not open the estimate file:
+
+- Input: often ~15,000–35,000 tokens depending on report size
+- Output: varies with how long the session runs
+- Many sessions fall in the **roughly $0.10–$0.50** range at typical Sonnet-tier list prices—**verify with your actual usage**
 
 ---
 
 ## Current capabilities (recent)
 
-- **Diagnostics:** `diagnose.ps1` collects the full system report and optional [before/after](#files-created-during-session) metrics
+- **Diagnostics:** `diagnose.ps1` collects the full system report and optional [before/after](#files-created-during-session) metrics, plus a **browser-friendly** `system_report.html` for navigation and reading
 - **Storage (analyze-only):** per-volume `Optimize-Volume -Analyze` with HDD vs SSD-aware suggestions (remediation only after you approve in the agent session)
 - **Portable handoff:** `system_report.txt` is validated against the current PC’s hostname so another machine’s report is not used by mistake; optional reuse on the same PC defaults to re-running diagnostics
 - **Post-restart resume:** one-time `RunOnce` registration, automatic relaunch after logon, and `resume_bootstrap.txt` for session continuity (see [above](#optional-resume-after-a-planned-restart))

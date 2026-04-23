@@ -5,14 +5,15 @@
 # ============================================================
 #  PC DOCTOR - System Diagnostics Collector
 #  Collects comprehensive system health data
-#  Output: system_report.txt
+#  Output: system_report.txt (+ system_report.html unless -NoHtml)
 # ============================================================
 
 param(
     [string]$OutputPath = "$env:TEMP\pc-doctor\system_report.txt",
     [string]$CompareWithMetricsPath = "",
     [switch]$CompareWithBaseline,
-    [switch]$SaveAsBaseline
+    [switch]$SaveAsBaseline,
+    [switch]$NoHtml
 )
 
 # If requested, compare this run to the last saved baseline next to the report (pc-doctor_metrics_baseline.json).
@@ -54,6 +55,217 @@ function Add-Section($title) {
 
 function Add-Line($line) {
     $script:report += $line
+}
+
+function Split-ReportIntoSections([string[]]$lines) {
+    $sections = [System.Collections.ArrayList]@()
+    $usedSlugs = @{}
+    $i = 0
+    while ($i -lt $lines.Count) {
+        if ($lines[$i] -match '^=+$') {
+            $i++
+            if ($i -ge $lines.Count) { break }
+            if ($lines[$i] -match '^\s{2}(.+?)\s*$') {
+                $title = $Matches[1].Trim()
+                $i++
+                if ($i -lt $lines.Count -and $lines[$i] -match '^=+$') { $i++ }
+                $body = [System.Collections.ArrayList]@()
+                while ($i -lt $lines.Count) {
+                    if ($lines[$i] -match '^=+$') { break }
+                    [void]$body.Add($lines[$i])
+                    $i++
+                }
+                $base = ($title.ToLower() -replace '[^a-z0-9]+', '-').Trim('-')
+                if (-not $base) { $base = 'section' }
+                $slug = $base
+                $n = 2
+                while ($usedSlugs.ContainsKey($slug)) {
+                    $slug = "$base-$n"
+                    $n++
+                }
+                $usedSlugs[$slug] = $true
+                [void]$sections.Add([pscustomobject]@{ Title = $title; Slug = $slug; Body = ($body -as [string[]]) })
+                continue
+            }
+        }
+        $i++
+    }
+    return $sections
+}
+
+function Format-ReportLineHtml([string]$line) {
+    if ($null -eq $line) { return '' }
+    $e = [System.Net.WebUtility]::HtmlEncode($line)
+    $e = $e -replace '\[(OK)\]', '<span class="st-ok">[OK]</span>'
+    $e = $e -replace '\[(CRITICAL)\]', '<span class="st-crit">[CRITICAL]</span>'
+    $e = $e -replace '\[(WARNING)\]', '<span class="st-warn">[WARNING]</span>'
+    $e = $e -replace '\[(CAUTION)\]', '<span class="st-warn">[CAUTION]</span>'
+    $e = $e -replace '\[(INFO)\]', '<span class="st-info">[INFO]</span>'
+    $e = $e -replace '\[(ERROR)\]', '<span class="st-err">[ERROR]</span>'
+    $e = $e -replace '\[\!\]', '<span class="st-warn">[!]</span>'
+    return $e
+}
+
+function Write-PcDoctorHtmlReport {
+    param(
+        [string[]]$Lines,
+        [string]$HtmlPath,
+        [string]$GeneratedLocal
+    )
+    $sections = Split-ReportIntoSections $Lines
+    if ($sections.Count -eq 0) {
+        Write-Host "  [WARNING] Could not parse report sections for HTML; skipping HTML export." -ForegroundColor Yellow
+        return
+    }
+    $navSb = [System.Text.StringBuilder]::new()
+    [void]$navSb.AppendLine('<ul class="toc-list">')
+    foreach ($s in $sections) {
+        $tEnc = [System.Net.WebUtility]::HtmlEncode($s.Title)
+        [void]$navSb.AppendLine(('  <li><a href="#{0}">{1}</a></li>' -f $s.Slug, $tEnc))
+    }
+    [void]$navSb.AppendLine('</ul>')
+    $mainSb = [System.Text.StringBuilder]::new()
+    foreach ($s in $sections) {
+        $tEnc = [System.Net.WebUtility]::HtmlEncode($s.Title)
+        [void]$mainSb.AppendLine(('  <section class="card" id="{0}" aria-labelledby="h-{0}">' -f $s.Slug))
+        [void]$mainSb.AppendLine(('    <h2 id="h-{0}"><a class="anchor" href="#{0}" aria-hidden="true">#</a> {1}</h2>' -f $s.Slug, $tEnc))
+        [void]$mainSb.AppendLine('    <div class="sec-body"><pre class="report-pre" tabindex="0">')
+        foreach ($bl in $s.Body) {
+            [void]$mainSb.AppendLine((Format-ReportLineHtml $bl))
+        }
+        [void]$mainSb.AppendLine('    </pre></div>')
+        [void]$mainSb.AppendLine('    <p class="back-top"><a href="#top">Back to top</a></p>')
+        [void]$mainSb.AppendLine('  </section>')
+    }
+    $css = @'
+:root {
+  --bg: #0f1419;
+  --surface: #1a2332;
+  --border: #2d3d52;
+  --text: #e7ecf3;
+  --muted: #8b9cb3;
+  --accent: #3d8bfd;
+  --ok: #3fb950;
+  --warn: #d4a72c;
+  --crit: #f85149;
+  --info: #58a6ff;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+  font-size: 15px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.site-header {
+  position: sticky; top: 0; z-index: 100;
+  background: linear-gradient(180deg, var(--surface) 0%, rgba(26,35,50,.97) 100%);
+  border-bottom: 1px solid var(--border);
+  padding: 0.85rem 1.25rem;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 1rem;
+}
+.site-header h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+.site-header .meta { color: var(--muted); font-size: 0.88rem; }
+.layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 1.25rem;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 1rem 1.25rem 2.5rem;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  .toc-wrap { position: static !important; max-height: none !important; }
+}
+.toc-wrap {
+  position: sticky; top: 56px; align-self: start;
+  max-height: calc(100vh - 64px); overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 0.5rem;
+}
+.toc-wrap h2 { margin: 0 0 0.5rem 0.6rem; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.toc-list { list-style: none; margin: 0; padding: 0; }
+.toc-list li { margin: 0; border-radius: 6px; }
+.toc-list a {
+  display: block; padding: 0.35rem 0.6rem; border-radius: 6px;
+  color: var(--text); font-size: 0.88rem;
+}
+.toc-list a:hover { background: rgba(61,139,253,.12); text-decoration: none; }
+main { min-width: 0; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.card h2 {
+  margin: 0; padding: 0.65rem 1rem;
+  font-size: 1.02rem; font-weight: 600;
+  background: rgba(0,0,0,.2);
+  border-bottom: 1px solid var(--border);
+  scroll-margin-top: 64px;
+}
+.anchor { opacity: .45; font-weight: 400; margin-right: .35rem; }
+.anchor:hover { opacity: 1; }
+.sec-body { padding: 0; }
+.report-pre {
+  margin: 0; padding: 0.9rem 1rem;
+  font-family: "Cascadia Code", "Consolas", "Segoe UI Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.4;
+  white-space: pre-wrap; word-break: break-word;
+  overflow-x: auto;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.back-top { margin: 0; padding: 0.4rem 1rem 0.75rem; font-size: 0.82rem; color: var(--muted); }
+.st-ok { color: var(--ok); font-weight: 600; }
+.st-warn { color: var(--warn); font-weight: 600; }
+.st-crit { color: var(--crit); font-weight: 600; }
+.st-info { color: var(--info); }
+.st-err { color: var(--crit); }
+.site-footer { text-align: center; padding: 1.5rem; color: var(--muted); font-size: 0.85rem; }
+'@
+    $html = @"
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Doctor - System Report</title>
+<style>
+$css
+</style>
+</head>
+<body id="top">
+<header class="site-header">
+  <h1>PC Doctor - System diagnostic report</h1>
+  <span class="meta">Generated: $([System.Net.WebUtility]::HtmlEncode($GeneratedLocal)) · Open <code>system_report.txt</code> for the same data (AI/agent use)</span>
+</header>
+<div class="layout">
+  <nav class="toc-wrap" aria-label="Report sections">
+    <h2>Navigate</h2>
+$( $navSb.ToString().TrimEnd() )
+  </nav>
+  <main>
+$( $mainSb.ToString().TrimEnd() )
+  </main>
+</div>
+<footer class="site-footer">PC Doctor v1.0 - AI IT Support Agent</footer>
+</body>
+</html>
+"@
+    $utf8NoBom = New-Object System.Text.UTF8Encoding $false
+    [System.IO.File]::WriteAllText($HtmlPath, $html, $utf8NoBom)
 }
 
 Write-Host "  Collecting system info..." -ForegroundColor Cyan
@@ -688,6 +900,17 @@ $baselinePath = Join-Path $outputDir "pc-doctor_metrics_baseline.json"
 
 $report | Out-File -FilePath $OutputPath -Encoding UTF8 -Force
 Write-Host "  Diagnostic report saved to: $OutputPath" -ForegroundColor Green
+
+$htmlPath = Join-Path $outputDir "system_report.html"
+if (-not $NoHtml) {
+    try {
+        $genAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+        Write-PcDoctorHtmlReport -Lines $report -HtmlPath $htmlPath -GeneratedLocal $genAt
+        Write-Host "  HTML report saved to:        $htmlPath" -ForegroundColor Green
+    } catch {
+        Write-Host "  [WARNING] Could not write HTML report: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+}
 
 try {
     $currentMetrics | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
