@@ -21,14 +21,15 @@ Think of it as a senior IT engineer sitting next to you, walking through the sys
 
 ### Project documentation (this repo)
 
-| File | Purpose |
-|------|--------|
+| File / path | Purpose |
+|-------------|---------|
 | `LICENSE` | AGPL-3.0 full terms |
 | `NOTICE` | Copyright and attribution |
 | `CONTRIBUTING.md` | How to contribute and PR expectations |
 | `SECURITY.md` | How to report security issues |
 | `CHANGELOG.md` | Notable changes between versions |
 | `agent_prompt.md` | Agent persona and safety rules (loaded for the session) |
+| `.cursor/skills/update-docs-on-significant-changes/SKILL.md` | Optional Cursor skill: when to update README/CHANGELOG for significant changes (helpers & maintainers) |
 
 ---
 
@@ -77,6 +78,8 @@ Make sure these files are in the same folder:
 ```
 📁 pc-doctor\
     install.bat
+    pc_doctor_resume.cmd        (used by the post-restart hook)
+    register_reboot_resume.cmd  (run before a planned restart to auto-resume)
     diagnose.ps1
     agent_prompt.md
     local.secrets.env.example
@@ -91,8 +94,38 @@ Make sure these files are in the same folder:
 3. The script will:
    - Install Node.js (if needed)
    - Install Claude Code (if needed)
-   - Reuse existing `outputs\system_report.txt` if available (or run diagnostics if needed)
+   - Build `outputs\system_report.txt` for **this** PC. If a previous report exists, the launcher checks that its `Hostname` line matches this computer; if not, it **regenerates** automatically. You can still choose to re-run diagnostics on the same machine (default is to **not** reuse, for safety when sharing a copy of the app).
    - Launch the AI agent
+
+### Optional: resume after a planned restart
+
+If a fix **requires a reboot** and you want the assistant to start again **without** manually running `install.bat` after you log back in:
+
+1. From the same folder as `install.bat`, run **`register_reboot_resume.cmd`** (or `install.bat --register-reboot`) **before** the PC restarts. This stores a **one-time** `RunOnce` entry (current user) that launches `pc_doctor_resume.cmd` on the next logon only.
+2. Restart the machine when you are ready.
+3. After sign-in, a new session starts with a short countdown, a fresh `system_report.txt`, and a **`resume_bootstrap.txt`** file that points to the most recent pre-reboot session report and transcript.
+4. If you **cancel** the restart, run `install.bat --clear-reboot-hook` so the automatic start does not run later by mistake.
+
+**Note:** The hook runs **once** and only for the user who registered it. Some environments restrict `RunOnce` or non–elevated diagnostics; the first full run should still be *Run as administrator* if you rely on the full diagnostic suite. The post-restart path does **not** require admin, but may not be able to perform new global installs; if something is missing, run a full `install.bat` as administrator again.
+
+### Portable copies and `system_report.txt`
+
+When you **copy** or **zip** the project to another computer, do **not** rely on a bundled `outputs\` folder from another machine: the diagnostic file `outputs\system_report.txt` is specific to the PC that generated it. The launcher:
+
+- Compares the `Hostname` line in an existing `system_report.txt` to the **current** computer name; if it does not match, it **regenerates** the report.
+- If the report is for the **same** PC, it asks whether to **reuse** it; the default is **not** to reuse (type `Y` only if you want to skip a long re-collection on the same machine).
+
+For the cleanest first run on a new device, ship or copy the app **without** the `outputs\` folder, or delete `outputs\` before first launch (it is not meant to be committed; see `.gitignore`).
+
+### `install.bat` options (reference)
+
+| Argument | Purpose |
+|----------|--------|
+| *(none)* | Full flow: admin check (unless disabled), dependencies, diagnostics, launch agent |
+| `--register-reboot` | Register a **one-time** start after the next user logon (see [resume after restart](#optional-resume-after-a-planned-restart)); then exit |
+| `--clear-reboot-hook` | Remove that registration if the restart was cancelled; then exit |
+| `--post-restart` | Internal: used by `pc_doctor_resume.cmd` after logon; skips admin, always refreshes `system_report.txt`, resume-oriented prompt |
+| `--skip-admin-check` | Skip the administrator check (e.g. debugging) |
 
 ---
 
@@ -134,6 +167,7 @@ All files are saved to the project `outputs\` folder (same folder as `install.ba
 - `console_transcript_YYYY-MM-DD_HH-mm-ss.txt` — Session conversation transcript
 - `session_report_YYYY-MM-DD_HH-mm-ss.txt` — End-of-session action report
 - `init_message_YYYY-MM-DD_HH-mm-ss.txt` — Startup instructions sent to the agent
+- `resume_bootstrap.txt` — Only when a session is started by the post-restart hook: paths to the latest prior `session_report_*.txt` and `console_transcript_*.txt` for handoff
 
 ### Before / after comparison (optional)
 
@@ -190,6 +224,12 @@ The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a val
 **"claude is not recognized"**
 → Close CMD, reopen as Administrator, try again. Node PATH may need refresh.
 
+**"Claude Code on Windows requires git-bash"**
+→ Install Git for Windows: https://git-scm.com/downloads/win
+→ If needed, set:
+`setx CLAUDE_CODE_GIT_BASH_PATH "C:\Program Files\Git\bin\bash.exe" /M`
+→ Close and reopen CMD, then run `install.bat` again.
+
 **"ANTHROPIC_API_KEY not set"**
 → Either create `local.secrets.env` from `local.secrets.env.example`, run `setx ANTHROPIC_API_KEY "sk-ant-..." /M`, or use `claude auth login`
 
@@ -217,6 +257,8 @@ Each PC Doctor session uses approximately:
 
 - **Diagnostics:** `diagnose.ps1` collects the full system report and optional [before/after](#files-created-during-session) metrics
 - **Storage (analyze-only):** per-volume `Optimize-Volume -Analyze` with HDD vs SSD-aware suggestions (remediation only after you approve in the agent session)
+- **Portable handoff:** `system_report.txt` is validated against the current PC’s hostname so another machine’s report is not used by mistake; optional reuse on the same PC defaults to re-running diagnostics
+- **Post-restart resume:** one-time `RunOnce` registration, automatic relaunch after logon, and `resume_bootstrap.txt` for session continuity (see [above](#optional-resume-after-a-planned-restart))
 - **Releases:** version tags (e.g. `v1.0.0`) and release notes; see `CHANGELOG.md` and `RELEASE_NOTES_v1.0.0.md` on the repo
 
 ## Planned Roadmap (Future Goals)

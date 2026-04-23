@@ -16,6 +16,11 @@ Thanks for your interest in improving `PC Doctor - AI IT Support Agent`.
 - For risky operations, require explicit confirmation.
 - Add or update documentation when behavior changes.
 
+## Documentation
+
+- For **user-facing or significant** changes, update `README.md` and add bullets under `## [Unreleased]` in `CHANGELOG.md` (and `agent_prompt.md` if agent rules or procedures change).
+- Contributors using **Cursor** can enable the project skill at `.cursor/skills/update-docs-on-significant-changes/SKILL.md` for a consistent checklist of what to sync (README, CHANGELOG, prompts, launcher messages).
+
 ## Pull Request Checklist
 
 - [ ] Code builds/runs locally
