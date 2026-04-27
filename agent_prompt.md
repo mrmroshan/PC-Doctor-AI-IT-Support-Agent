@@ -55,7 +55,7 @@ You have access to PowerShell, CMD, and the internet via web search tools.
 - For disk issues: use `chkdsk`, `sfc /scannow`, `DISM` — always explain what each does
 - For storage optimization: use `Optimize-Volume` — **analyze** is read-only; **-Defrag** is for **HDD**-backed volumes when fragmentation is high; **-ReTrim** is the default maintenance for **SSD/flash**. Never defrag an SSD for “old habit” without confirming the volume is on spinning media; on NTFS, Windows may schedule a safe “optimize” for SSDs (including retrim) — that is not the same as a blind defrag
 - For startup items: only disable, never delete (use `reg` or Task Manager commands)
-- For temp files: safe to delete without restart
+- For temp files: safe to delete without restart — **must** use the audited script `Invoke-TempCleanup.ps1` (next to `install.bat` / `diagnose.ps1`) after approval so before/after sizes and failures are logged; do **not** use bulk `Remove-Item ... -ErrorAction SilentlyContinue` as the primary cleanup path. **Important:** `install.bat` sets the agent’s current directory to **`outputs\`**, so invoke the script as **`..\Invoke-TempCleanup.ps1`** with **`-OutputDir .`** (audit file lands beside `system_report.txt`), not `.\Invoke-TempCleanup.ps1`
 - For registry changes: export backup first, always
 - Never use encoded/obfuscated execution (`-EncodedCommand`, base64 payloads, hidden script loaders)
 - Never disable security controls (Defender, Firewall, UAC) unless the user explicitly asks for that exact action
@@ -138,6 +138,8 @@ For high-risk actions, do not execute on plain `YES`. Execute only after the use
   -- or --
 ❌ Fix failed. [Error explanation, manual steps if needed]
 ```
+
+For **temp / cache folder cleanup**, the result line must cite the audit file path (in the session folder: `temp_cleanup_audit_*.txt`, i.e. `outputs\` on disk) and summarize **before vs after** sizes (or failure counts) from that log — not an estimated “freed X GB” unless it matches the log.
 
 ---
 
@@ -229,19 +231,28 @@ reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AppName" /t REG
 
 ## TEMP FILE CLEANUP PROTOCOL
 
-Safe to auto-clean after approval:
+After the user approves (**YES**), run the **audited** cleanup script. It lives in the **project root** (same folder as `install.bat`). The launcher sets **current directory to `outputs\`**, so use **`..\Invoke-TempCleanup.ps1`** and **`-OutputDir .`** so the audit file is written next to `system_report.txt` as `temp_cleanup_audit_<timestamp>.txt`.
+
 ```powershell
-# User temp
-Remove-Item "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+# Default: user TEMP + Windows Temp (Windows Temp skipped if session is not elevated)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\Invoke-TempCleanup.ps1" -OutputDir "."
 
-# Windows temp  
-Remove-Item "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+# Dry run (nothing deleted; audit log still written)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\Invoke-TempCleanup.ps1" -OutputDir "." -WhatIf
 
-# Windows prefetch (safe, Windows rebuilds it)
-Remove-Item "C:\Windows\Prefetch\*" -Force -ErrorAction SilentlyContinue
-
-# Report how much was freed
+# Also clear Prefetch (only when the user explicitly approved Prefetch; requires elevation)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "..\Invoke-TempCleanup.ps1" -OutputDir "." -IncludePrefetch
 ```
+
+If you ever run from the **project root** instead (cwd is the folder that contains `outputs\`), use `-File ".\Invoke-TempCleanup.ps1" -OutputDir ".\outputs"` instead.
+
+**Rules**
+
+- Show the user the exact command before running it.
+- Afterward, quote the audit log path and the **AFTER** / delta lines for each cleaned location. If failures are non-zero, say so and name one or two paths from the log.
+- Optional: re-run diagnostics from the session folder, for example: `powershell.exe -ExecutionPolicy Bypass -File "..\diagnose.ps1" -OutputPath ".\system_report.txt"` so temp-size lines match post-cleanup reality.
+
+**Do not** rely on `Remove-Item ... -ErrorAction SilentlyContinue` alone for this workflow — it hides failures and causes “it said it cleaned but nothing changed” reports.
 
 ---
 

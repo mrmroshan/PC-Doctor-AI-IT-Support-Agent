@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **`tests\Run-TempCleanupContractTests.ps1`:** systematic checks for `install.bat` cwd vs `..\Invoke-TempCleanup.ps1`, parser clean, WhatIf run + audit log shape, and project-root invocation (`-File .\Invoke-TempCleanup.ps1 -OutputDir outputs`). Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Run-TempCleanupContractTests.ps1`
+- **`Invoke-TempCleanup.ps1`:** audited temp-folder cleanup with before/after sizes, per-target removed/failed counts, sample lock errors, and `outputs\temp_cleanup_audit_*.txt`; agent protocol in `agent_prompt.md` requires this path instead of silent `Remove-Item` for temp cleanup
 - **`.gitattributes`:** `*.bat` and `*.cmd` use CRLF on checkout so `cmd.exe` does not mis-parse LF-only batch files
 - **Session usage estimates for technicians:** `session_usage_estimate.ps1` runs after each `install.bat` session and writes `session_usage_estimate_<run-stamp>.txt` (approximate token counts from report/prompt/init/transcript and a USD band). Optional `pc-doctor-pricing.env` overrides per-million-token rates; defaults are clearly labeled as non-authoritative vs Anthropic Console billing
 - **HTML diagnostic report:** `diagnose.ps1` writes `system_report.html` next to `system_report.txt` (sticky sidebar TOC, section cards, scrollable `<pre>` blocks, highlighted `[OK]` / `[WARNING]` / `[CRITICAL]` / `[!]` tags). Use `-NoHtml` to skip. `install.bat` prints the path when the file exists.
@@ -23,6 +25,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- **`Invoke-TempCleanup.ps1` / docs:** session commands corrected to **`..\Invoke-TempCleanup.ps1` + `-OutputDir .`** because `install.bat` sets cwd to `outputs\`; relative `-OutputDir` is resolved against the process working directory
 - `install.bat`: `:Log` now uses a proper `if defined CONSOLE_LOG (` … `)` block for appending to the launcher log (the old one-line `if … >> … echo` form broke `cmd` parsing)
 - `install.bat`: optional `local.secrets.env` loading moved to `:LoadSecrets` so nested `setlocal` / `endlocal` cannot accidentally pop the main launcher scope and wipe paths
 - `install.bat` / `pc_doctor_resume.cmd` / `register_reboot_resume.cmd`: normalized to **CRLF** line endings for reliable parsing on Windows

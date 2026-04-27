@@ -137,14 +137,14 @@ For the cleanest first run on a new device, ship or copy the app **without** the
 Agent: "I found 7 issues. Here's Issue #1 — CRITICAL..."
        "Your C: drive is 94% full. This is causing your slowness."
        "I will run disk cleanup and clear temp files to free ~3GB."
-       "Commands: Remove-Item $env:TEMP\* -Recurse -Force"
+       "Commands: powershell -File ..\\Invoke-TempCleanup.ps1 -OutputDir ."
        "Risk: Low. No restart needed."
        "Type YES to proceed, SKIP to skip, ABORT to stop."
 
 You:   YES
 
 Agent: "▶ Running cleanup..."
-       "✅ Freed 2.8 GB. Moving to Issue #2..."
+       "✅ Done. See temp_cleanup_audit_<timestamp>.txt in outputs\\ (session cwd is that folder)."
 ```
 
 ---
@@ -161,7 +161,7 @@ Agent: "▶ Running cleanup..."
 
 ## Files Created During Session
 
-All files are saved to the project `outputs\` folder (same folder as `install.bat`):
+All files are saved to the project `outputs\` folder (under the same directory as `install.bat`):
 - `system_report.txt` — Full diagnostic data (used by the AI agent)
 - `system_report.html` — Same report as a **navigable** single-page HTML (sidebar table of contents, section anchors, syntax highlighting for status tags). Generated beside the `.txt` unless you pass `-NoHtml` to `diagnose.ps1`
 - `pc-doctor_metrics.json` — Machine-readable snapshot of key health numbers from the latest run (drives, RAM, temps, and so on) for diffs
@@ -171,6 +171,7 @@ All files are saved to the project `outputs\` folder (same folder as `install.ba
 - `session_report_YYYY-MM-DD_HH-mm-ss.txt` — End-of-session action report
 - `init_message_YYYY-MM-DD_HH-mm-ss.txt` — Startup instructions sent to the agent
 - `session_usage_estimate_YYYY-MM-DD_HH-mm-ss.txt` — **Estimated** token volume and USD range for the session (heuristic; real usage is in the Anthropic Console)
+- `temp_cleanup_audit_YYYY-MM-DD_HH-mm-ss.txt` — Written when the agent runs `Invoke-TempCleanup.ps1` after you approve temp cleanup: before/after folder sizes, removed vs failed counts, sample paths that could not be deleted (e.g. in use)
 - `resume_bootstrap.txt` — Only when a session is started by the post-restart hook: paths to the latest prior `session_report_*.txt` and `console_transcript_*.txt` for handoff
 
 ### Before / after comparison (optional)
@@ -202,6 +203,18 @@ The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a val
 | `-NoHtml` | Do not write `system_report.html` (text and JSON are still written) |
 
 **Note:** CPU load and fragmentation are moment-in-time values — best used as hints. Free space, temp/recycle sizes, and RAM pressure tend to be the most meaningful before/after deltas.
+
+### Audited temp cleanup (optional manual run)
+
+From an elevated **Administrator** prompt. **Project root** (folder that contains `outputs\`):
+
+```text
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File Invoke-TempCleanup.ps1 -OutputDir outputs
+```
+
+During a normal PC Doctor session the shell **cwd is `outputs\`**; the agent uses `..\Invoke-TempCleanup.ps1` with `-OutputDir .` (see `agent_prompt.md`).
+
+Add `-IncludePrefetch` only if you explicitly want Prefetch cleared. Use `-WhatIf` to preview targets without deleting.
 
 ---
 
