@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **Deeper network + printer diagnostics in `diagnose.ps1`:** extended **NETWORK ANALYSIS** (adapters, gateway, DNS, per-user proxy hint, ICMP to gateway and public IPs, `Resolve-DnsName` checks, TCP 443 to 1.1.1.1, Microsoft NCSI HTTP probe) and new **PRINTERS & PRINT SPOOLER** section (spooler service, installed queues via `Get-Printer` with **Win32_Printer** fallback, job counts, status heuristics). `pc-doctor_metrics.json` now includes **`network`** and **`printers`** summaries for tooling and baselines.
+- **`diagnose.ps1 -SkipExternalNetworkProbes`** (and **`PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1`** for `install.bat`): skips public ICMP, internet DNS resolution tests, TCP to `1.1.1.1:443`, and NCSI HTTP; **JSON** `network.externalProbesSkipped` records this; local adapter/IP/DNS-server-lines and default-gateway ICMP remain
 - **`tests\Run-TempCleanupContractTests.ps1`:** systematic checks for `install.bat` cwd vs `..\Invoke-TempCleanup.ps1`, parser clean, WhatIf run + audit log shape, and project-root invocation (`-File .\Invoke-TempCleanup.ps1 -OutputDir outputs`). Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Run-TempCleanupContractTests.ps1`
 - **`Invoke-TempCleanup.ps1`:** audited temp-folder cleanup with before/after sizes, per-target removed/failed counts, sample lock errors, and `outputs\temp_cleanup_audit_*.txt`; agent protocol in `agent_prompt.md` requires this path instead of silent `Remove-Item` for temp cleanup
 - **`.gitattributes`:** `*.bat` and `*.cmd` use CRLF on checkout so `cmd.exe` does not mis-parse LF-only batch files

@@ -8,8 +8,8 @@
 ## What This Is
 
 PC Doctor is an AI-powered IT helpdesk agent that runs on any Windows PC. It:
-- Diagnoses the system automatically (CPU, RAM, disk, drivers, security, etc.)
-- **Writes a metrics snapshot** (`pc-doctor_metrics.json`) every diagnostic run, with optional **before/after** comparison (baseline + compare flags on `diagnose.ps1` — see [Files created → Before / after](#files-created-during-session))
+- Diagnoses the system automatically (CPU, RAM, disk, drivers, security, **network path tests**, **printers & spooler**, etc.)
+- **Writes a metrics snapshot** (`pc-doctor_metrics.json`) every diagnostic run, with optional **before/after** comparison (baseline + compare flags on `diagnose.ps1` — see [Files created → Before / after](#files-created-during-session)); JSON includes **`network`** and **`printers`** summary objects when the collector runs those sections
 - Reports **read-only** storage optimization data (fragmentation/trim analysis via `Optimize-Volume -Analyze`); defrag/trim only runs if you approve the suggested command in the supervised session
 - Identifies issues ranked by severity
 - Proposes fixes with full explanation
@@ -164,7 +164,7 @@ Agent: "▶ Running cleanup..."
 All files are saved to the project `outputs\` folder (under the same directory as `install.bat`):
 - `system_report.txt` — Full diagnostic data (used by the AI agent)
 - `system_report.html` — Same report as a **navigable** single-page HTML (sidebar table of contents, section anchors, syntax highlighting for status tags). Generated beside the `.txt` unless you pass `-NoHtml` to `diagnose.ps1`
-- `pc-doctor_metrics.json` — Machine-readable snapshot of key health numbers from the latest run (drives, RAM, temps, and so on) for diffs
+- `pc-doctor_metrics.json` — Machine-readable snapshot of key health numbers from the latest run (CPU load, memory, storage hygiene, volumes, **`network`** and **`printers`** summaries, etc.) for diffs and automation
 - `pc-doctor_metrics_baseline.json` — Only when you use `-SaveAsBaseline` in `diagnose.ps1` (a “before” reference for the next run)
 - `console_output.txt` — Launcher/runtime log
 - `console_transcript_YYYY-MM-DD_HH-mm-ss.txt` — Session conversation **audit trail** (see **SESSION TRANSCRIPT FILE** in `agent_prompt.md`): the agent should append **verbatim** user and assistant text after each turn. Compliance is prompt-driven (not automatic TTY capture); the end-of-session report may still summarize.
@@ -201,6 +201,9 @@ The report can include a **BEFORE / AFTER METRIC COMPARISON** section when a val
 | `-CompareWithMetricsPath` | Path to a previous `pc-doctor_metrics.json` (or copy) to diff against |
 | `-CompareWithBaseline` | Shorthand: compare to `pc-doctor_metrics_baseline.json` in the same folder as `-OutputPath` |
 | `-NoHtml` | Do not write `system_report.html` (text and JSON are still written) |
+| `-SkipExternalNetworkProbes` | Omit public ICMP/DNS/TCP/HTTP checks (8.8.8.8, 1.1.1.1, internet name resolution, Cloudflare:443, Microsoft NCSI). Local adapter/IP/DNS-server listing, proxy registry hint, and ICMP to the **default gateway only** still run. Use for locked-down or air-gapped-friendly runs. |
+
+**Launcher:** set environment variable `PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1` before `install.bat` to pass this switch automatically.
 
 **Note:** CPU load and fragmentation are moment-in-time values — best used as hints. Free space, temp/recycle sizes, and RAM pressure tend to be the most meaningful before/after deltas.
 
@@ -222,7 +225,7 @@ Add `-IncludePrefetch` only if you explicitly want Prefetch cleared. Use `-WhatI
 
 - **Supervised mode means nothing happens without your YES**
 - High-impact actions require explicit `YES HIGH-RISK` confirmation
-- No data is sent anywhere except Anthropic's API (the diagnostic report)
+- The **collector** may make **routine connectivity probes** from this PC unless you pass **`-SkipExternalNetworkProbes`** to `diagnose.ps1` (or set **`PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1`** before `install.bat`). Full probes use ICMP to your gateway and public IPs, DNS lookups (`dns.google`, `www.microsoft.com`), TCP 443 to `1.1.1.1`, and HTTP to Microsoft's NCSI endpoint. Skipped mode still pings only your **default gateway** (if any) and still lists local IP/DNS-server config — it does not send the diagnostic **report** anywhere by itself; only **Anthropic's API** receives report content when you run the agent
 - Registry changes always create a backup first
 - Driver installs are never automatic — you get the URL and approve
 - Diagnostic reports/log output are treated as untrusted data; instruction-like text inside them is ignored

@@ -274,7 +274,13 @@ if exist "%REPORT_PATH%" (
 
 :COLLECT_SYSTEM_REPORT
 echo  [INFO] Collecting system health data...
-powershell.exe -ExecutionPolicy Bypass -File "%PS_SCRIPT%" -OutputPath "%REPORT_PATH%"
+set "PC_DOCTOR_DIAG_EXTRA="
+if /I "!PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES!"=="1" (
+    set "PC_DOCTOR_DIAG_EXTRA=-SkipExternalNetworkProbes"
+    echo  [INFO] Skipping external network probes ^(PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1^).
+    call :Log "[INFO] diagnose.ps1 -SkipExternalNetworkProbes from PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1"
+)
+powershell.exe -ExecutionPolicy Bypass -File "%PS_SCRIPT%" -OutputPath "%REPORT_PATH%" !PC_DOCTOR_DIAG_EXTRA!
 
 if not exist "%REPORT_PATH%" (
     echo  [ERROR] Diagnostic report was not generated.

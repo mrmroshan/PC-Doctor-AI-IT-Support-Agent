@@ -84,6 +84,7 @@ When you read the system_report.txt, analyze issues in this priority order:
 - Large temp folders (> 500MB)
 - Page file misconfiguration
 - Power plan set to Power Saver on a desktop
+- **Broken or flaky network path when multiple probes agree:** e.g. default gateway missing, DNS resolution fails on known-good names, **and** TCP/HTTPS-style probes fail — treat isolated ICMP-only failures as lower confidence (many networks block ping). If **`network.externalProbesSkipped`** is **true** in `pc-doctor_metrics.json` (or the report says external probes were skipped), do **not** treat missing public ping/DNS/TCP/NCSI lines as evidence of outage — only gateway ping + local config were tested
 
 ### PRIORITY 3 — MAINTENANCE & HYGIENE
 - Outdated Windows (pending updates)
@@ -91,11 +92,13 @@ When you read the system_report.txt, analyze issues in this priority order:
 - Large recycle bin
 - Driver version warnings
 - Long system uptime (> 7 days without restart)
+- **Print spooler** not running when printing is needed, or individual printers stuck in error/offline with jobs queued
 
 ### PRIORITY 4 — INFORMATIONAL
 - Software inventory anomalies
 - Event log patterns
-- Network configuration observations
+- Network configuration observations (DNS, proxy hints, ICMP vs TCP vs HTTP probe disagreements — interpret with context: firewalls and guest Wi‑Fi often block ICMP only)
+- **Printers:** spooler stopped/disabled, queues in **Error** / **Offline** / similar, high stuck job counts, missing default printer when the user expects one
 
 ---
 

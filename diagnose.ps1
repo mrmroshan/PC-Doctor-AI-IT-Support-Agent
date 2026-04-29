@@ -13,7 +13,8 @@ param(
     [string]$CompareWithMetricsPath = "",
     [switch]$CompareWithBaseline,
     [switch]$SaveAsBaseline,
-    [switch]$NoHtml
+    [switch]$NoHtml,
+    [switch]$SkipExternalNetworkProbes
 )
 
 # If requested, compare this run to the last saved baseline next to the report (pc-doctor_metrics_baseline.json).
@@ -46,6 +47,10 @@ if ($CompareWithMetricsPath -and (Test-Path -LiteralPath $CompareWithMetricsPath
     }
 }
 
+# Filled during NETWORK ANALYSIS / PRINTERS sections for `pc-doctor_metrics.json`
+$script:networkMetrics = [ordered]@{}
+$script:printerMetrics = [ordered]@{}
+
 function Add-Section($title) {
     $script:report += ""
     $script:report += "=" * 60
@@ -55,6 +60,20 @@ function Add-Section($title) {
 
 function Add-Line($line) {
     $script:report += $line
+}
+
+function Test-PcDoctorPrinterNeedsAttention {
+    param(
+        $Status,
+        [bool]$WorkOffline
+    )
+    if ($WorkOffline) { return $true }
+    if ($null -eq $Status) { return $false }
+    $s = [string]$Status
+    if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+    if ($s -eq 'Normal') { return $false }
+    if ($s -eq 'Paused') { return $false }
+    return $true
 }
 
 function Split-ReportIntoSections([string[]]$lines) {
@@ -530,7 +549,7 @@ if (-not $fixedVols) {
     }
 }
 Add-Line "To analyze again manually:  Optimize-Volume -DriveLetter <Letter> -Analyze -Verbose"
-Add-Line 'HDD: use -Defrag on spinning disks when fragmentation is high. SSD/flash: use -ReTrim; Windows 10/11 may schedule optimize for NTFS (including retrim) — that is not the same as a classic "defrag everything" habit.'
+Add-Line 'HDD: use -Defrag on spinning disks when fragmentation is high. SSD/flash: use -ReTrim; Windows 10/11 may schedule optimize for NTFS (including retrim) - that is not the same as a classic "defrag everything" habit.'
 
 # ============================================================
 #  SECTION 5: STARTUP PROGRAMS
@@ -688,27 +707,317 @@ if ($appErrors) {
 Write-Host "  Analyzing network..." -ForegroundColor Cyan
 Add-Section "NETWORK ANALYSIS"
 
-# IP configuration
-Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.IPAddress -notmatch "^127|^169"} | ForEach-Object {
-    Add-Line "  Interface: $($_.InterfaceAlias)  IP: $($_.IPAddress)  Prefix: $($_.PrefixLength)"
+$script:networkMetrics = [ordered]@{
+    externalProbesSkipped = [bool]$SkipExternalNetworkProbes
+    adaptersUp            = 0
+    adaptersDown          = 0
+    defaultGatewayV4      = $null
+    gatewayReachable      = $null
+    gatewayPingMs         = $null
+    icmp8888Ok            = $null
+    icmp8888Ms            = $null
+    icmp1111Ok            = $null
+    icmp1111Ms            = $null
+    dnsResolveOk          = $null
+    tcp443PublicOk        = $null
+    httpNcsiOk            = $null
+    userProxyEnabled      = $null
 }
 
-# DNS servers
+Add-Line "Network adapters (non-loopback):"
+try {
+    Get-NetAdapter -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch 'Loopback' } |
+        Sort-Object Name |
+        ForEach-Object {
+            if ($_.Status -eq 'Up') {
+                $script:networkMetrics.adaptersUp++
+            } else {
+                $script:networkMetrics.adaptersDown++
+            }
+            $speedPart = if ($_.LinkSpeed) { $_.LinkSpeed } else { "n/a" }
+            Add-Line ("  {0,-32} Status: {1,-10} Media: {2} Speed: {3}" -f $_.Name, $_.Status, $_.MediaType, $speedPart)
+        }
+} catch {
+    Add-Line "  [INFO] Could not enumerate adapters via Get-NetAdapter"
+}
+
 Add-Line ""
-Add-Line "DNS Servers:"
-Get-DnsClientServerAddress -AddressFamily IPv4 | Where-Object {$_.ServerAddresses} | ForEach-Object {
+Add-Line "IPv4 addresses (excluding loopback and APIPA):"
+Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+    Where-Object { $_.IPAddress -notmatch '^127\.|^169\.254\.' } |
+    ForEach-Object {
+        Add-Line ("  {0,-24} IP: {1}/{2}" -f $_.InterfaceAlias, $_.IPAddress, $_.PrefixLength)
+    }
+
+Add-Line ""
+$defRoute = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+    Where-Object { $_.NextHop -and $_.NextHop -ne '0.0.0.0' } |
+    Sort-Object RouteMetric | Select-Object -First 1
+$gw = $null
+if ($defRoute) {
+    $gw = [string]$defRoute.NextHop
+    $script:networkMetrics.defaultGatewayV4 = $gw
+    Add-Line ("Default IPv4 gateway: {0}  (ifIndex {1}, route metric {2})" -f $gw, $defRoute.InterfaceIndex, $defRoute.RouteMetric)
+} else {
+    Add-Line "Default IPv4 gateway: [WARNING] None found - check IP config or routing"
+}
+
+Add-Line ""
+Add-Line "DNS servers:"
+Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {$_.ServerAddresses} | ForEach-Object {
     Add-Line "  $($_.InterfaceAlias): $($_.ServerAddresses -join ', ')"
 }
 
-# Basic connectivity
 Add-Line ""
-Add-Line "Connectivity Test:"
-$pingGoogle = Test-Connection -ComputerName "8.8.8.8" -Count 2 -ErrorAction SilentlyContinue
-if ($pingGoogle) {
-    $avgLatency = ($pingGoogle | Measure-Object ResponseTime -Average).Average
-    Add-Line "  Internet (8.8.8.8) : [OK] Avg latency $([math]::Round($avgLatency,1))ms"
+Add-Line "Per-user proxy (Internet Settings):"
+try {
+    $px = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings' -ErrorAction Stop
+    $proxyOn = ($px.ProxyEnable -eq 1)
+    $script:networkMetrics.userProxyEnabled = $proxyOn
+    if ($proxyOn) {
+        $srv = if ($px.ProxyServer) { [string]$px.ProxyServer } else { '(enabled; no ProxyServer value)' }
+        Add-Line ("  Status: [INFO] Proxy enabled - {0}" -f $srv)
+    } else {
+        Add-Line "  Status: [OK] Proxy not enabled in per-user settings"
+    }
+} catch {
+    Add-Line "  Status: [INFO] Could not read per-user proxy keys"
+}
+
+Add-Line ""
+if ($SkipExternalNetworkProbes) {
+    Add-Line "[INFO] External/public network probes were skipped (-SkipExternalNetworkProbes). Use this on locked-down networks. Local adapter list, IPv4 config, DNS *server* lines, proxy registry hint, and ICMP to the *default gateway only* (if present) still run below."
+}
+Add-Line "Path tests (ICMP may be blocked while TCP/HTTP still works):"
+if ($gw) {
+    $pgw = Test-Connection -ComputerName $gw -Count 2 -ErrorAction SilentlyContinue
+    if ($pgw) {
+        $gAvg = ($pgw | Measure-Object ResponseTime -Average).Average
+        $script:networkMetrics.gatewayReachable = $true
+        $script:networkMetrics.gatewayPingMs = [math]::Round($gAvg, 1)
+        Add-Line ("  Latency to gateway {0}: [OK] avg ICMP {1}ms" -f $gw, [math]::Round($gAvg, 1))
+    } else {
+        $script:networkMetrics.gatewayReachable = $false
+        Add-Line ("  Latency to gateway {0}: [WARNING] no ICMP reply (VPN/firewall/cable?)" -f $gw)
+    }
 } else {
-    Add-Line "  Internet (8.8.8.8) : [WARNING] No response - possible connectivity issue"
+    Add-Line "  Latency to gateway: [INFO] skipped (no default gateway)"
+}
+
+if (-not $SkipExternalNetworkProbes) {
+    $ping8 = Test-Connection -ComputerName "8.8.8.8" -Count 2 -ErrorAction SilentlyContinue
+    if ($ping8) {
+        $a8 = ($ping8 | Measure-Object ResponseTime -Average).Average
+        $script:networkMetrics.icmp8888Ok = $true
+        $script:networkMetrics.icmp8888Ms = [math]::Round($a8, 1)
+        Add-Line ("  Internet ICMP 8.8.8.8: [OK] avg {0}ms" -f [math]::Round($a8, 1))
+    } else {
+        $script:networkMetrics.icmp8888Ok = $false
+        Add-Line "  Internet ICMP 8.8.8.8: [WARNING] no reply"
+    }
+
+    $ping11 = Test-Connection -ComputerName "1.1.1.1" -Count 2 -ErrorAction SilentlyContinue
+    if ($ping11) {
+        $a11 = ($ping11 | Measure-Object ResponseTime -Average).Average
+        $script:networkMetrics.icmp1111Ok = $true
+        $script:networkMetrics.icmp1111Ms = [math]::Round($a11, 1)
+        Add-Line ("  Internet ICMP 1.1.1.1: [OK] avg {0}ms" -f [math]::Round($a11, 1))
+    } else {
+        $script:networkMetrics.icmp1111Ok = $false
+        Add-Line "  Internet ICMP 1.1.1.1: [WARNING] no reply"
+    }
+
+    Add-Line ""
+    Add-Line "DNS resolution (client resolver):"
+    try {
+        $dq = @(Resolve-DnsName -Name "dns.google" -Type A -DnsOnly -ErrorAction Stop | Select-Object -First 4)
+        if ($dq.Count -gt 0) {
+            $script:networkMetrics.dnsResolveOk = $true
+            $dstr = ($dq | ForEach-Object { $_.IPAddress }) -join ', '
+            Add-Line ("  dns.google (A): [OK] {0}" -f $dstr)
+        } else {
+            $script:networkMetrics.dnsResolveOk = $false
+            Add-Line "  dns.google (A): [WARNING] empty result"
+        }
+    } catch {
+        $script:networkMetrics.dnsResolveOk = $false
+        Add-Line ("  dns.google (A): [WARNING] {0}" -f ($_.Exception.Message -replace '[\r\n]+', ' '))
+    }
+    try {
+        $mq = Resolve-DnsName -Name "www.microsoft.com" -Type A -DnsOnly -ErrorAction Stop | Select-Object -First 3
+        if ($mq) {
+            $mstr = ($mq | ForEach-Object { $_.IPAddress }) -join ', '
+            Add-Line ("  www.microsoft.com (A): [OK] {0}" -f $mstr)
+        }
+    } catch {
+        Add-Line "  www.microsoft.com (A): [WARNING] failed (DNS filter or offline?)"
+    }
+
+    Add-Line ""
+    Add-Line "TCP / application-style probes:"
+    try {
+        $tnc = Test-NetConnection -ComputerName "1.1.1.1" -Port 443 -WarningAction SilentlyContinue
+        if ($tnc.TcpTestSucceeded) {
+            $script:networkMetrics.tcp443PublicOk = $true
+            Add-Line "  TCP 1.1.1.1:443: [OK] handshake succeeded"
+        } else {
+            $script:networkMetrics.tcp443PublicOk = $false
+            Add-Line "  TCP 1.1.1.1:443: [WARNING] failed (captive portal, firewall, or path issue)"
+        }
+    } catch {
+        $script:networkMetrics.tcp443PublicOk = $false
+        Add-Line "  TCP 1.1.1.1:443: [INFO] Test-NetConnection error"
+    }
+
+    $ncsiProg = $ProgressPreference
+    try {
+        $ProgressPreference = 'SilentlyContinue'
+        $ncsi = Invoke-WebRequest -Uri "http://www.msftncsi.com/ncsi.txt" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        if ($ncsi.StatusCode -eq 200 -and $ncsi.Content -match 'NCSI') {
+            $script:networkMetrics.httpNcsiOk = $true
+            Add-Line "  HTTP msft NCSI probe: [OK] received expected connectivity text"
+        } else {
+            $script:networkMetrics.httpNcsiOk = $false
+            Add-Line "  HTTP msft NCSI probe: [WARNING] unexpected HTTP payload"
+        }
+    } catch {
+        $script:networkMetrics.httpNcsiOk = $false
+        Add-Line ("  HTTP msft NCSI probe: [WARNING] {0}" -f ($_.Exception.Message -replace '[\r\n]+', ' '))
+    } finally {
+        $ProgressPreference = $ncsiProg
+    }
+} else {
+    Add-Line ""
+    Add-Line "  [INFO] Skipped: ICMP to 8.8.8.8 and 1.1.1.1 (public resolvers)"
+    Add-Line "  [INFO] Skipped: DNS resolution tests for dns.google / www.microsoft.com"
+    Add-Line "  [INFO] Skipped: TCP 1.1.1.1:443 and HTTP NCSI (msftncsi.com)"
+}
+
+# ============================================================
+#  SECTION 10B: PRINTERS & PRINT SPOOLER
+# ============================================================
+Write-Host "  Analyzing printers..." -ForegroundColor Cyan
+Add-Section "PRINTERS & PRINT SPOOLER"
+
+$script:printerMetrics = [ordered]@{
+    spoolerRunning    = $null
+    spoolerStartType  = $null
+    printerCount      = 0
+    defaultPrinter    = $null
+    issuePrinterCount = 0
+    totalQueuedJobs   = 0
+}
+
+$sp = Get-Service -Name Spooler -ErrorAction SilentlyContinue
+if ($sp) {
+    $running = ($sp.Status -eq 'Running')
+    $script:printerMetrics.spoolerRunning = $running
+    $script:printerMetrics.spoolerStartType = [string]$sp.StartType
+    if ($running) {
+        Add-Line ("Print Spooler service: [OK] Running  (StartType: {0})" -f $sp.StartType)
+    } else {
+        Add-Line ("Print Spooler service: [CRITICAL] {0} - printing is unavailable until started" -f $sp.Status)
+    }
+} else {
+    Add-Line "Print Spooler service: [WARNING] not readable (permissions or missing)"
+}
+
+Add-Line ""
+Add-Line "Installed printers:"
+
+$usedGetPrinter = $false
+$prList = @()
+try {
+    $prList = @(Get-Printer -ErrorAction Stop)
+    $usedGetPrinter = $true
+} catch {
+    $prList = @()
+}
+
+if ($usedGetPrinter) {
+    $script:printerMetrics.printerCount = $prList.Count
+    if ($prList.Count -eq 0) {
+        Add-Line "  [INFO] No printers returned by Get-Printer (none installed or access denied)."
+    }
+    foreach ($pr in $prList) {
+        if ($pr.Default) {
+            $script:printerMetrics.defaultPrinter = $pr.Name
+        }
+        $jobs = 0
+        try {
+            $jobs = @(Get-PrintJob -PrinterName $pr.Name -ErrorAction SilentlyContinue).Count
+        } catch {}
+        $script:printerMetrics.totalQueuedJobs += $jobs
+        $woPr = $false
+        if ($null -ne $pr.PSObject.Properties['WorkOffline']) {
+            try { $woPr = [bool]$pr.WorkOffline } catch { $woPr = $false }
+        }
+        $attn = Test-PcDoctorPrinterNeedsAttention -Status $pr.PrinterStatus -WorkOffline $woPr
+        if ($attn) {
+            $script:printerMetrics.issuePrinterCount++
+        }
+        $tag = '[OK]'
+        if ($pr.PrinterStatus -eq 'Paused') {
+            $tag = '[INFO]'
+        }
+        if ($attn) {
+            $tag = '[WARNING]'
+        }
+        $ptype = if ($pr.Type) { $pr.Type } else { '' }
+        Add-Line ("  {0} {1,-36} Type: {2,-8} Status: {3,-14} Jobs: {4}  Driver: {5}" -f `
+            $tag, $pr.Name, $ptype, $pr.PrinterStatus, $jobs, $pr.DriverName)
+        Add-Line ("        Port: {0}" -f $pr.PortName)
+    }
+} else {
+    try {
+        $wmiP = @(Get-CimInstance Win32_Printer -ErrorAction Stop)
+        $script:printerMetrics.printerCount = $wmiP.Count
+        if ($wmiP.Count -eq 0) {
+            Add-Line "  [INFO] No printers reported by Win32_Printer."
+        }
+        foreach ($p in $wmiP) {
+            if ($p.Default) {
+                $script:printerMetrics.defaultPrinter = $p.Name
+            }
+            $stLabel = switch ([int]$p.PrinterStatus) {
+                1 { 'Other' }
+                2 { 'Unknown' }
+                3 { 'Idle' }
+                4 { 'Printing' }
+                5 { 'Warmup' }
+                6 { 'Stopped Printing' }
+                7 { 'Offline' }
+                default { "Code $($p.PrinterStatus)" }
+            }
+            $jobs = 0
+            try {
+                $jobs = @(Get-PrintJob -PrinterName $p.Name -ErrorAction SilentlyContinue).Count
+            } catch {}
+            $script:printerMetrics.totalQueuedJobs += $jobs
+            $wo = $false
+            try { $wo = [bool]$p.WorkOffline } catch { $wo = $false }
+            $bad = ($wo -or [int]$p.PrinterStatus -eq 7 -or [int]$p.PrinterStatus -eq 6 -or [int]$p.PrinterStatus -eq 1 -or [int]$p.PrinterStatus -eq 2)
+            if ($bad) {
+                $script:printerMetrics.issuePrinterCount++
+            }
+            $tag = if ($bad) { '[WARNING]' } else { '[OK]' }
+            $shared = if ($p.Shared) { 'Shared' } else { 'Local' }
+            Add-Line ("  {0} {1,-36} {2}  Status: {3}  Jobs: {4}" -f $tag, $p.Name, $shared, $stLabel, $jobs)
+            Add-Line ("        Driver: {0}  Port: {1}" -f $p.DriverName, $p.PortName)
+        }
+    } catch {
+        Add-Line ("  [WARNING] Could not enumerate printers: {0}" -f $_.Exception.Message)
+    }
+}
+
+if (-not $script:printerMetrics.defaultPrinter) {
+    try {
+        $defP = Get-CimInstance -ClassName Win32_Printer -Filter "Default=True" -ErrorAction SilentlyContinue
+        if ($defP) {
+            $script:printerMetrics.defaultPrinter = $defP.Name
+        }
+    } catch {}
 }
 
 # ============================================================
@@ -799,6 +1108,8 @@ $currentMetrics = [ordered]@{
     }
     storage         = $script:storageMetrics
     volumes         = @($volList)
+    network         = $script:networkMetrics
+    printers        = $script:printerMetrics
 }
 
 function Get-PCDoctorVolumeFromSnapshot($snapshot, $letter) {
