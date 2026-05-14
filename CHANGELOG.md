@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- **DeepSeek via Claude Code:** `local.secrets.env` can supply DeepSeek’s Anthropic-compatible settings (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, optional model env vars per [DeepSeek coding-agents guide](https://api-docs.deepseek.com/guides/coding_agents#integrate-with-claude-code)); `install.bat` whitelists those keys, shows DeepSeek auth mode when the base URL matches, and maps `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN` when the base URL is DeepSeek’s
 - **Deeper network + printer diagnostics in `diagnose.ps1`:** extended **NETWORK ANALYSIS** (adapters, gateway, DNS, per-user proxy hint, ICMP to gateway and public IPs, `Resolve-DnsName` checks, TCP 443 to 1.1.1.1, Microsoft NCSI HTTP probe) and new **PRINTERS & PRINT SPOOLER** section (spooler service, installed queues via `Get-Printer` with **Win32_Printer** fallback, job counts, status heuristics). `pc-doctor_metrics.json` now includes **`network`** and **`printers`** summaries for tooling and baselines.
 - **`diagnose.ps1 -SkipExternalNetworkProbes`** (and **`PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1`** for `install.bat`): skips public ICMP, internet DNS resolution tests, TCP to `1.1.1.1:443`, and NCSI HTTP; **JSON** `network.externalProbesSkipped` records this; local adapter/IP/DNS-server-lines and default-gateway ICMP remain
 - **`tests\Run-TempCleanupContractTests.ps1`:** systematic checks for `install.bat` cwd vs `..\Invoke-TempCleanup.ps1`, parser clean, WhatIf run + audit log shape, and project-root invocation (`-File .\Invoke-TempCleanup.ps1 -OutputDir outputs`). Run: `powershell -NoProfile -ExecutionPolicy Bypass -File tests\Run-TempCleanupContractTests.ps1`
@@ -37,6 +38,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- **`PC_DOCTOR_LLM_PROVIDER`:** optional `anthropic` \| `deepseek` key in `local.secrets.env` (whitelisted by `install.bat`) presets **`ANTHROPIC_BASE_URL`** for DeepSeek or clears a leftover DeepSeek URL when switching back to Anthropic
 - `agent_prompt.md`: **SESSION TRANSCRIPT FILE** rules—the agent must append **verbatim** user and assistant text after each turn (full audit trail); session report may still summarize
 - `install.bat`: init message and `INIT_PROMPT` stress verbatim transcript logging per `agent_prompt.md`
 - `README.md` / `CONTRIBUTING.md`: transcript audit-trail expectations, CRLF / batch troubleshooting, contributor note on line endings

@@ -37,7 +37,7 @@ Think of it as a senior IT engineer sitting next to you, walking through the sys
 
 - Windows 10 or Windows 11
 - Internet connection
-- **Authentication**: either an Anthropic API key or an existing `claude auth login` session
+- **Authentication**: an Anthropic API key, **or** [DeepSeek via Claude Code’s Anthropic-compatible endpoint](https://api-docs.deepseek.com/guides/coding_agents#integrate-with-claude-code), **or** an existing `claude auth login` session
 - Run as Administrator
 
 ---
@@ -51,6 +51,19 @@ Think of it as a senior IT engineer sitting next to you, walking through the sys
 4. Copy the key (starts with `sk-ant-...`)
 
 ### Step 2: Configure Authentication (Choose One)
+
+**Provider toggle (`local.secrets.env`):**
+
+Set **`PC_DOCTOR_LLM_PROVIDER`** to choose where Claude Code sends requests:
+
+| Value | Behavior |
+|--------|-----------|
+| `anthropic` | Uses Anthropic directly (default-style routing). If `ANTHROPIC_BASE_URL` still pointed at **DeepSeek**, the launcher **clears** it so you are not stuck on DeepSeek after switching back. |
+| `deepseek` | Targets DeepSeek’s Anthropic-compatible API. If **`ANTHROPIC_BASE_URL`** is not set, `install.bat` sets it to **`https://api.deepseek.com/anthropic`**. |
+
+You still need a valid **Anthropic API key** or **`ANTHROPIC_AUTH_TOKEN`** (DeepSeek key) plus optional model lines—the preset only wires **`ANTHROPIC_BASE_URL`** for you.
+
+Omit **`PC_DOCTOR_LLM_PROVIDER`** if you prefer to set **`ANTHROPIC_BASE_URL`** yourself only when using DeepSeek (backward compatible).
 
 **Option A - Local project secrets file (recommended):**
 1. Copy `local.secrets.env.example` to `local.secrets.env`
@@ -72,6 +85,24 @@ Open CMD and run:
 ```
 claude auth login
 ```
+
+**Option D - DeepSeek (Claude Code, Anthropic-compatible API):**
+
+Use **`PC_DOCTOR_LLM_PROVIDER=deepseek`** in `local.secrets.env` for the quickest setup (see provider table above), **or** set **`ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`** yourself.
+
+DeepSeek documents the exact variables Claude Code expects ([Integrate with Claude Code](https://api-docs.deepseek.com/guides/coding_agents#integrate-with-claude-code)). In practice set:
+
+- **`ANTHROPIC_AUTH_TOKEN`** (or **`ANTHROPIC_API_KEY`** with your DeepSeek key—the launcher copies it when routing via DeepSeek)
+- **`PC_DOCTOR_LLM_PROVIDER=deepseek`** *or* an explicit **`ANTHROPIC_BASE_URL`** as above
+
+Optional model overrides (see DeepSeek’s guide for current names), for example:
+
+- `ANTHROPIC_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`
+- `CLAUDE_CODE_SUBAGENT_MODEL`, `CLAUDE_CODE_EFFORT_LEVEL`
+
+`install.bat` loads these keys from `local.secrets.env`. If `ANTHROPIC_BASE_URL` points at DeepSeek and you only filled `ANTHROPIC_API_KEY` with your DeepSeek key, the launcher copies it to `ANTHROPIC_AUTH_TOKEN` so Claude Code matches DeepSeek’s documented setup.
+
+Session cost estimates (`session_usage_estimate_*.txt`) still use rough token math; set **`pc-doctor-pricing.env`** to DeepSeek’s per-million rates if you want USD bands to align with your provider.
 
 ### Step 3: Place All Files Together
 Make sure these files are in the same folder:
@@ -128,6 +159,8 @@ For the cleanest first run on a new device, ship or copy the app **without** the
 | `--clear-reboot-hook` | Remove that registration if the restart was cancelled; then exit |
 | `--post-restart` | Internal: used by `pc_doctor_resume.cmd` after logon; skips admin, always refreshes `system_report.txt`, resume-oriented prompt |
 | `--skip-admin-check` | Skip the administrator check (e.g. debugging) |
+
+**Environment (`local.secrets.env` or system env):** **`PC_DOCTOR_LLM_PROVIDER`** may be **`anthropic`** or **`deepseek`** (see [Step 2](#step-2-configure-authentication-choose-one)); other Claude-related keys are listed in `local.secrets.env.example`.
 
 ---
 
@@ -251,11 +284,11 @@ Add `-IncludePrefetch` only if you explicitly want Prefetch cleared. Use `-WhatI
 `setx CLAUDE_CODE_GIT_BASH_PATH "C:\Program Files\Git\bin\bash.exe" /M`
 → Close and reopen CMD, then run `install.bat` again.
 
-**"ANTHROPIC_API_KEY not set"**
-→ Either create `local.secrets.env` from `local.secrets.env.example`, run `setx ANTHROPIC_API_KEY "sk-ant-..." /M`, or use `claude auth login`
+**"ANTHROPIC_API_KEY not set"** (or Claude asks for auth when you expected API access)
+→ Create `local.secrets.env` from `local.secrets.env.example`, **or** run `setx ANTHROPIC_API_KEY "sk-ant-..." /M`, **or** use DeepSeek variables (`ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` — see **Option D** above), **or** use `claude auth login`.
 
 **"Auth conflict" or "Invalid API key"**
-→ Verify `local.secrets.env` key value, or remove/clear the key and use `claude auth login`
+→ Verify `local.secrets.env` (Anthropic key vs DeepSeek token and base URL — they must match the provider you intend). You can remove conflicting lines and use `claude auth login` instead.
 
 **"Access denied" on PowerShell**
 → Make sure install.bat was launched via right-click → Run as Administrator

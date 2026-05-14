@@ -3,7 +3,7 @@
 # Part of PC Doctor - AI IT Support Agent
 #
 # Post-session ESTIMATES of token volume and USD cost for technicians.
-# Billed usage: always verify in the Anthropic Console / usage dashboard.
+# Billed usage: always verify in your provider dashboard (Anthropic Console, DeepSeek, etc.).
 
 param(
     [Parameter(Mandatory = $true)]

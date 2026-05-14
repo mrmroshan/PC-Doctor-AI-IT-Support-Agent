@@ -87,6 +87,45 @@ if exist "%SECRETS_FILE%" (
     call :LoadSecrets "%SECRETS_FILE%"
 )
 
+:: --- LLM provider preset: PC_DOCTOR_LLM_PROVIDER=anthropic ^| deepseek (from local.secrets.env or environment) ---
+if defined PC_DOCTOR_LLM_PROVIDER (
+    if /I "!PC_DOCTOR_LLM_PROVIDER!"=="deepseek" (
+        if not defined ANTHROPIC_BASE_URL (
+            set "ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic"
+            echo  [INFO] PC_DOCTOR_LLM_PROVIDER=deepseek — using DeepSeek gateway ^(!ANTHROPIC_BASE_URL!^).
+            call :Log "[INFO] PC_DOCTOR_LLM_PROVIDER=deepseek preset (ANTHROPIC_BASE_URL)."
+        ) else (
+            echo !ANTHROPIC_BASE_URL! | findstr /i "deepseek.com" >nul 2>&1
+            if errorlevel 1 (
+                echo  [WARN] PC_DOCTOR_LLM_PROVIDER=deepseek but ANTHROPIC_BASE_URL is not a DeepSeek host — leaving BASE_URL unchanged.
+                call :Log "[WARN] PC_DOCTOR_LLM_PROVIDER=deepseek with non-DeepSeek ANTHROPIC_BASE_URL."
+            )
+        )
+    ) else if /I "!PC_DOCTOR_LLM_PROVIDER!"=="anthropic" (
+        if defined ANTHROPIC_BASE_URL (
+            echo !ANTHROPIC_BASE_URL! | findstr /i "deepseek.com" >nul 2>&1
+            if not errorlevel 1 (
+                set "ANTHROPIC_BASE_URL="
+                echo  [INFO] PC_DOCTOR_LLM_PROVIDER=anthropic — cleared DeepSeek ANTHROPIC_BASE_URL for native Anthropic routing.
+                call :Log "[INFO] PC_DOCTOR_LLM_PROVIDER=anthropic: cleared DeepSeek ANTHROPIC_BASE_URL."
+            )
+        )
+    ) else (
+        echo  [WARN] Unknown PC_DOCTOR_LLM_PROVIDER=!PC_DOCTOR_LLM_PROVIDER! ^(use anthropic or deepseek^). Ignoring.
+        call :Log "[WARN] Unknown PC_DOCTOR_LLM_PROVIDER."
+    )
+)
+
+:: DeepSeek's Claude Code guide uses ANTHROPIC_AUTH_TOKEN; allow ANTHROPIC_API_KEY alone when BASE_URL points at DeepSeek.
+if defined ANTHROPIC_BASE_URL (
+    echo !ANTHROPIC_BASE_URL! | findstr /i "deepseek.com" >nul 2>&1
+    if not errorlevel 1 (
+        if not defined ANTHROPIC_AUTH_TOKEN (
+            if defined ANTHROPIC_API_KEY set "ANTHROPIC_AUTH_TOKEN=!ANTHROPIC_API_KEY!"
+        )
+    )
+)
+
 if not "!PC_DOCTOR_POST_RESTART!"=="1" if exist "%WORK_DIR%\resume_bootstrap.txt" del /q "%WORK_DIR%\resume_bootstrap.txt" 2^>nul
 
 :: ============================================================
@@ -215,9 +254,19 @@ call :Log "[OK] Git Bash path set for Claude: %CLAUDE_CODE_GIT_BASH_PATH%"
 echo.
 echo  [STEP 2.5/4] Preparing authentication mode...
 set "AUTH_MODE=Claude Console login ^(if already signed in^)"
-if defined ANTHROPIC_API_KEY set "AUTH_MODE=API key from environment/secrets file"
+set "DS_URL=0"
+if defined ANTHROPIC_BASE_URL (
+    echo !ANTHROPIC_BASE_URL! | findstr /i "deepseek.com" >nul 2>&1
+    if not errorlevel 1 set "DS_URL=1"
+)
+if "!DS_URL!"=="1" (
+    set "AUTH_MODE=DeepSeek API ^(Anthropic-compatible endpoint^)"
+) else (
+    if defined ANTHROPIC_API_KEY set "AUTH_MODE=Anthropic API key from environment/secrets file"
+    if not defined ANTHROPIC_API_KEY if defined ANTHROPIC_AUTH_TOKEN set "AUTH_MODE=API token ^(ANTHROPIC_AUTH_TOKEN^)"
+)
 echo  [INFO] Auth mode: %AUTH_MODE%
-if not defined ANTHROPIC_API_KEY echo  [INFO] If launch fails, run: claude auth login
+if not defined ANTHROPIC_API_KEY if not defined ANTHROPIC_AUTH_TOKEN echo  [INFO] If launch fails, run: claude auth login
 call :Log "[INFO] Authentication mode selected: %AUTH_MODE%"
 
 :: ============================================================
@@ -412,7 +461,7 @@ if exist "%USAGE_SCRIPT%" (
     echo.
     echo  [INFO] Session usage estimates (for technicians^)...
     powershell.exe -ExecutionPolicy Bypass -File "%USAGE_SCRIPT%" -WorkDir "%WORK_DIR%" -RunStamp "%RUNSTAMP%"
-    call :Log "[OK] Wrote session_usage_estimate_%RUNSTAMP%.txt (estimates only; verify billing in Anthropic Console^)"
+    call :Log "[OK] Wrote session_usage_estimate_%RUNSTAMP%.txt (estimates only; verify billing in Anthropic Console or your provider dashboard^)"
 ) else (
     call :Log "[WARNING] session_usage_estimate.ps1 not found; skipped usage summary."
 )
@@ -421,7 +470,7 @@ if not "!CLAUDE_EXIT!"=="0" (
     echo.
     echo  [ERROR] Claude exited unexpectedly ^(exit code: !CLAUDE_EXIT!^).
     echo  Try one of these:
-    echo    1^) Check key in local.secrets.env (ANTHROPIC_API_KEY=sk-ant-...)
+    echo    1^) Check local.secrets.env: Anthropic ANTHROPIC_API_KEY=sk-ant-... OR DeepSeek ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN ^(see README^)
     echo    2^) Run: claude auth login
     echo    3^) Run: claude -p "Respond only with: OK"
     pause
@@ -443,22 +492,37 @@ if defined CONSOLE_LOG (
 )
 exit /b 0
 
-:: Parse local.secrets.env without breaking outer setlocal (line 6) or delayed expansion stack.
+:: Parse local.secrets.env: whitelist only Claude Code / gateway vars (see README, DeepSeek coding-agents guide).
+:: Note: do not use setlocal/endlocal here — variables applied via the temp batch must persist in the launcher scope.
 :LoadSecrets
-setlocal DisableDelayedExpansion
 set "SECRETS_PATH=%~1"
-if not exist "%SECRETS_PATH%" (
-    endlocal
-    exit /b 0
-)
+if not exist "%SECRETS_PATH%" exit /b 0
+set "TMPBAT=%TEMP%\pc_doctor_secrets_%RANDOM%_%RANDOM%.bat"
+>"%TMPBAT%" echo @echo off
 for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%SECRETS_PATH%") do (
-    if /I "%%A"=="ANTHROPIC_API_KEY" (
-        endlocal
-        set "ANTHROPIC_API_KEY=%%B"
-        exit /b 0
-    )
+    call :ApplyWhitelistedSecret "%TMPBAT%" "%%~A" "%%~B"
 )
-endlocal
+call "%TMPBAT%"
+del /q "%TMPBAT%" >nul 2>&1
+exit /b 0
+
+:ApplyWhitelistedSecret
+set "SEC_TMPBAT=%~1"
+set "SEC_KEY=%~2"
+set "SEC_VAL=%~3"
+if /I "%SEC_KEY%"=="ANTHROPIC_API_KEY" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="ANTHROPIC_AUTH_TOKEN" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="ANTHROPIC_BASE_URL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="ANTHROPIC_MODEL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="ANTHROPIC_DEFAULT_OPUS_MODEL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="ANTHROPIC_DEFAULT_SONNET_MODEL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="ANTHROPIC_DEFAULT_HAIKU_MODEL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="CLAUDE_CODE_SUBAGENT_MODEL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="CLAUDE_CODE_EFFORT_LEVEL" goto :ApplySecretWrite
+if /I "%SEC_KEY%"=="PC_DOCTOR_LLM_PROVIDER" goto :ApplySecretWrite
+exit /b 0
+:ApplySecretWrite
+>>"%SEC_TMPBAT%" echo set "%SEC_KEY%=%SEC_VAL%"
 exit /b 0
 
 :: Newest pre-reboot artifacts in outputs (for resume_bootstrap).
