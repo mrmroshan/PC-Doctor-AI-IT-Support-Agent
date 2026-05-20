@@ -12,7 +12,8 @@ param(
     [string]$RunStamp,
     [double]$InputUsdPerMtok = 0,
     [double]$OutputUsdPerMtok = 0,
-    [int]$CliOverheadTokens = 650
+    [int]$CliOverheadTokens = 650,
+    [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,21 +61,20 @@ if ($OutputUsdPerMtok -le 0) { $OutputUsdPerMtok = 15.00 }
 
 $reportPath = Join-Path $WorkDir 'system_report.txt'
 $promptPath = Join-Path $WorkDir 'agent_prompt.md'
-$initPath   = Join-Path $WorkDir "init_message_$RunStamp.txt"
+if (-not (Test-Path -LiteralPath $promptPath)) {
+    $promptPath = Join-Path $scriptDir 'agent_prompt.md'
+}
 $transcriptPath = Join-Path $WorkDir "console_transcript_$RunStamp.txt"
 $htmlPath   = Join-Path $WorkDir 'system_report.html'
 
 $cReport = Get-TextLen $reportPath
 $cPrompt = Get-TextLen $promptPath
-$cInit   = Get-TextLen $initPath
 $cHtml   = Get-TextLen $htmlPath
 
 $tReport = Get-TokensFromChars $cReport
 $tPrompt = Get-TokensFromChars $cPrompt
-$tInit   = Get-TokensFromChars $cInit
 
-$ctxChars = $cReport + $cPrompt + $cInit
-$ctxTokensFirstTurn = $tReport + $tPrompt + $tInit + $CliOverheadTokens
+$ctxTokensFirstTurn = $tReport + $tPrompt + $CliOverheadTokens
 
 $cTrans = Get-TextLen $transcriptPath
 $tTransRaw = Get-TokensFromChars $cTrans
@@ -130,7 +130,6 @@ $sb = [System.Text.StringBuilder]::new()
 [void]$sb.AppendLine('--- Context files (approx. first full prompt budget) ---')
 [void]$sb.AppendLine("  system_report.txt   chars: $cReport  ~tokens: $tReport  $(if (-not (Test-Path $reportPath)) { '(missing)' })")
 [void]$sb.AppendLine("  agent_prompt.md     chars: $cPrompt  ~tokens: $tPrompt  $(if (-not (Test-Path $promptPath)) { '(missing)' })")
-[void]$sb.AppendLine("  init_message        chars: $cInit   ~tokens: $tInit   $(if (-not (Test-Path $initPath)) { '(missing)' })")
 [void]$sb.AppendLine("  nominal CLI overhead:     ~$CliOverheadTokens tokens")
 [void]$sb.AppendLine("  SUM (first turn, est.):   ~$ctxTokensFirstTurn tokens")
 if ($cHtml -gt 0) {
@@ -162,5 +161,7 @@ if ($cTrans -le 0) {
 $text = $sb.ToString()
 [System.IO.File]::WriteAllText($outPath, $text, $utf8)
 
-Write-Host $text -ForegroundColor Cyan
-Write-Host "  Saved: $outPath" -ForegroundColor Green
+if (-not $Quiet) {
+    Write-Host $text -ForegroundColor Cyan
+    Write-Host "  Saved: $outPath" -ForegroundColor Green
+}

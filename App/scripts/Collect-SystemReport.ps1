@@ -14,8 +14,20 @@ param(
     [switch]$CompareWithBaseline,
     [switch]$SaveAsBaseline,
     [switch]$NoHtml,
-    [switch]$SkipExternalNetworkProbes
+    [switch]$SkipExternalNetworkProbes,
+    [switch]$Quiet
 )
+
+function Write-DiagMsg {
+    param(
+        [string]$Message,
+        [ValidateSet('Cyan', 'Green', 'Yellow', 'Red')]
+        [string]$Color = 'Cyan',
+        [switch]$Force
+    )
+    if ($Quiet -and -not $Force) { return }
+    Write-Host $Message -ForegroundColor $Color
+}
 
 # If requested, compare this run to the last saved baseline next to the report (pc-doctor_metrics_baseline.json).
 if ($CompareWithBaseline) {
@@ -27,7 +39,7 @@ if ($CompareWithBaseline) {
                 $CompareWithMetricsPath = $baselineCandidate
             }
         } else {
-            Write-Host "  [INFO] -CompareWithBaseline: no file at $baselineCandidate (run with -SaveAsBaseline first)." -ForegroundColor Yellow
+            Write-DiagMsg "  [INFO] -CompareWithBaseline: no file at $baselineCandidate (run with -SaveAsBaseline first)." -Color Yellow
         }
     }
 }
@@ -133,7 +145,7 @@ function Write-PcDoctorHtmlReport {
     )
     $sections = Split-ReportIntoSections $Lines
     if ($sections.Count -eq 0) {
-        Write-Host "  [WARNING] Could not parse report sections for HTML; skipping HTML export." -ForegroundColor Yellow
+        Write-DiagMsg "  [WARNING] Could not parse report sections for HTML; skipping HTML export." -Color Yellow
         return
     }
     $navSb = [System.Text.StringBuilder]::new()
@@ -287,7 +299,7 @@ $( $mainSb.ToString().TrimEnd() )
     [System.IO.File]::WriteAllText($HtmlPath, $html, $utf8NoBom)
 }
 
-Write-Host "  Collecting system info..." -ForegroundColor Cyan
+Write-DiagMsg "  Collecting system info..."
 
 # ============================================================
 #  SECTION 1: SYSTEM OVERVIEW
@@ -313,7 +325,7 @@ Add-Line "BIOS Release     : $($bios.ReleaseDate)"
 # ============================================================
 #  SECTION 2: CPU ANALYSIS
 # ============================================================
-Write-Host "  Analyzing CPU..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing CPU..."
 Add-Section "CPU ANALYSIS"
 
 $cpu = Get-CimInstance Win32_Processor
@@ -342,7 +354,7 @@ Get-Process | Sort-Object CPU -Descending | Select-Object -First 10 | ForEach-Ob
 # ============================================================
 #  SECTION 3: MEMORY ANALYSIS
 # ============================================================
-Write-Host "  Analyzing RAM..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing RAM..."
 Add-Section "MEMORY (RAM) ANALYSIS"
 
 $totalRAM = [math]::Round($os.TotalVisibleMemorySize / 1MB, 2)
@@ -388,7 +400,7 @@ Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 10 | F
 # ============================================================
 #  SECTION 4: DISK HEALTH & ANALYSIS
 # ============================================================
-Write-Host "  Analyzing disks..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing disks..."
 Add-Section "DISK HEALTH & STORAGE ANALYSIS"
 
 # Disk space
@@ -447,7 +459,7 @@ $script:storageMetrics = [ordered]@{
 #  SECTION 4B: STORAGE OPTIMIZATION (ANALYZE ONLY)
 #  Read-only: Optimize-Volume -Analyze. No defrag/trim is performed here.
 # ============================================================
-Write-Host "  Analyzing storage optimization (fragmentation/trim)..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing storage optimization (fragmentation/trim)..."
 Add-Section "STORAGE OPTIMIZATION (ANALYZE -- FRAGMENTATION / TRIM)"
 Add-Line "This section runs read-only analysis (PowerShell: Optimize-Volume -Analyze)."
 Add-Line "It does not defragment, retrim, or change volumes. Suggested fix commands are for the supervised session only."
@@ -496,7 +508,7 @@ if (-not $fixedVols) {
             $script:volMetrics[$lk].analyzeError = $_.Exception.Message
             Add-Line ("  [ANALYZE FAILED] {0}" -f $_.Exception.Message)
             if ($_.Exception.Message -match "Access is denied" -or $_.Exception.Message -match "elevation") {
-                Add-Line "  [HINT] Run the launcher as Administrator for this analysis, or re-run install.bat as Administrator."
+                Add-Line "  [HINT] Run the launcher as Administrator for this analysis, or re-run start.bat as Administrator."
             }
             Add-Line ""
             continue
@@ -554,7 +566,7 @@ Add-Line 'HDD: use -Defrag on spinning disks when fragmentation is high. SSD/fla
 # ============================================================
 #  SECTION 5: STARTUP PROGRAMS
 # ============================================================
-Write-Host "  Checking startup programs..." -ForegroundColor Cyan
+Write-DiagMsg "  Checking startup programs..."
 Add-Section "STARTUP PROGRAMS"
 
 Add-Line "Registry Startup (HKCU):"
@@ -579,7 +591,7 @@ Get-CimInstance Win32_StartupCommand | ForEach-Object {
 # ============================================================
 #  SECTION 6: WINDOWS UPDATES
 # ============================================================
-Write-Host "  Checking Windows Updates..." -ForegroundColor Cyan
+Write-DiagMsg "  Checking Windows Updates..."
 Add-Section "WINDOWS UPDATE STATUS"
 
 $updateSession = New-Object -ComObject Microsoft.Update.Session
@@ -612,7 +624,7 @@ if ($lastUpdate) {
 # ============================================================
 #  SECTION 7: DRIVER ANALYSIS
 # ============================================================
-Write-Host "  Analyzing drivers..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing drivers..."
 Add-Section "DRIVER ANALYSIS"
 
 Add-Line "Devices with Issues (Error/Warning state):"
@@ -643,7 +655,7 @@ Get-CimInstance Win32_NetworkAdapter | Where-Object {$_.PhysicalAdapter -eq $tru
 # ============================================================
 #  SECTION 8: SYSTEM FILE INTEGRITY
 # ============================================================
-Write-Host "  Checking system file integrity..." -ForegroundColor Cyan
+Write-DiagMsg "  Checking system file integrity..."
 Add-Section "SYSTEM FILE INTEGRITY"
 
 Add-Line "Running SFC scan (quick check)..."
@@ -673,7 +685,7 @@ if ($dismResult -match "No component store corruption detected") {
 # ============================================================
 #  SECTION 9: EVENT LOG ERRORS (Last 24 Hours)
 # ============================================================
-Write-Host "  Scanning event logs..." -ForegroundColor Cyan
+Write-DiagMsg "  Scanning event logs..."
 Add-Section "EVENT LOG - ERRORS & WARNINGS (LAST 24 HOURS)"
 
 $since = (Get-Date).AddHours(-24)
@@ -704,7 +716,7 @@ if ($appErrors) {
 # ============================================================
 #  SECTION 10: NETWORK ANALYSIS
 # ============================================================
-Write-Host "  Analyzing network..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing network..."
 Add-Section "NETWORK ANALYSIS"
 
 $script:networkMetrics = [ordered]@{
@@ -897,7 +909,7 @@ if (-not $SkipExternalNetworkProbes) {
 # ============================================================
 #  SECTION 10B: PRINTERS & PRINT SPOOLER
 # ============================================================
-Write-Host "  Analyzing printers..." -ForegroundColor Cyan
+Write-DiagMsg "  Analyzing printers..."
 Add-Section "PRINTERS & PRINT SPOOLER"
 
 $script:printerMetrics = [ordered]@{
@@ -1023,7 +1035,7 @@ if (-not $script:printerMetrics.defaultPrinter) {
 # ============================================================
 #  SECTION 11: SECURITY OVERVIEW
 # ============================================================
-Write-Host "  Checking security..." -ForegroundColor Cyan
+Write-DiagMsg "  Checking security..."
 Add-Section "SECURITY OVERVIEW"
 
 # Windows Defender
@@ -1210,31 +1222,31 @@ $jsonPath     = Join-Path $outputDir "pc-doctor_metrics.json"
 $baselinePath = Join-Path $outputDir "pc-doctor_metrics_baseline.json"
 
 $report | Out-File -FilePath $OutputPath -Encoding UTF8 -Force
-Write-Host "  Diagnostic report saved to: $OutputPath" -ForegroundColor Green
+Write-DiagMsg "  Diagnostic report saved to: $OutputPath" -Color Green
 
 $htmlPath = Join-Path $outputDir "system_report.html"
 if (-not $NoHtml) {
     try {
         $genAt = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
         Write-PcDoctorHtmlReport -Lines $report -HtmlPath $htmlPath -GeneratedLocal $genAt
-        Write-Host "  HTML report saved to:        $htmlPath" -ForegroundColor Green
+        Write-DiagMsg "  HTML report saved to:        $htmlPath" -Color Green
     } catch {
-        Write-Host "  [WARNING] Could not write HTML report: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-DiagMsg "  [WARNING] Could not write HTML report: $($_.Exception.Message)" -Color Yellow
     }
 }
 
 try {
     $currentMetrics | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
-    Write-Host "  Metrics JSON saved to:      $jsonPath" -ForegroundColor Green
+    Write-DiagMsg "  Metrics JSON saved to:      $jsonPath" -Color Green
 } catch {
-    Write-Host "  [WARNING] Could not write metrics JSON: $($_.Exception.Message)" -ForegroundColor Yellow
+    Write-DiagMsg "  [WARNING] Could not write metrics JSON: $($_.Exception.Message)" -Color Yellow
 }
 
 if ($SaveAsBaseline) {
     try {
         $currentMetrics | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $baselinePath -Encoding UTF8
-        Write-Host "  Baseline metrics saved to:  $baselinePath" -ForegroundColor Green
+        Write-DiagMsg "  Baseline metrics saved to:  $baselinePath" -Color Green
     } catch {
-        Write-Host "  [WARNING] Could not write baseline JSON: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-DiagMsg "  [WARNING] Could not write baseline JSON: $($_.Exception.Message)" -Color Yellow
     }
 }

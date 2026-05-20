@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- `start.bat` as the one-click root launcher; `App\launcher.bat` now owns dependency checks and Claude startup.
+- `App\scripts\Get-QuickHealth.ps1` for fast triage snapshots before full diagnostics.
+- `App\tests\Run-LauncherContractTests.ps1` to validate the new launcher contract and prep-only session generation.
 - **DeepSeek via Claude Code:** `local.secrets.env` can supply DeepSeek’s Anthropic-compatible settings (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, optional model env vars per [DeepSeek coding-agents guide](https://api-docs.deepseek.com/guides/coding_agents#integrate-with-claude-code)); `install.bat` whitelists those keys, shows DeepSeek auth mode when the base URL matches, and maps `ANTHROPIC_API_KEY` → `ANTHROPIC_AUTH_TOKEN` when the base URL is DeepSeek’s
 - **Deeper network + printer diagnostics in `diagnose.ps1`:** extended **NETWORK ANALYSIS** (adapters, gateway, DNS, per-user proxy hint, ICMP to gateway and public IPs, `Resolve-DnsName` checks, TCP 443 to 1.1.1.1, Microsoft NCSI HTTP probe) and new **PRINTERS & PRINT SPOOLER** section (spooler service, installed queues via `Get-Printer` with **Win32_Printer** fallback, job counts, status heuristics). `pc-doctor_metrics.json` now includes **`network`** and **`printers`** summaries for tooling and baselines.
 - **`diagnose.ps1 -SkipExternalNetworkProbes`** (and **`PC_DOCTOR_SKIP_EXTERNAL_NETWORK_PROBES=1`** for `install.bat`): skips public ICMP, internet DNS resolution tests, TCP to `1.1.1.1:443`, and NCSI HTTP; **JSON** `network.externalProbesSkipped` records this; local adapter/IP/DNS-server-lines and default-gateway ICMP remain
@@ -38,6 +41,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Root layout is simplified to `start.bat`, `README.md`, `outputs/`, and `App/`; operational docs moved to `App\docs\`.
+- Claude startup now uses a minimal first prompt with `--name "PC Doctor"` for cleaner UI.
+- Diagnostics are no longer run in launcher startup; PC state is collected on demand by the agent with `App\scripts\Collect-SystemReport.ps1`.
+- Agent runtime files (`CLAUDE.md`, `agent_prompt.md`, `.claude/settings.json`) now live in `App\.runtime\`; `outputs/` is reserved for generated session artifacts only.
 - **`PC_DOCTOR_LLM_PROVIDER`:** optional `anthropic` \| `deepseek` key in `local.secrets.env` (whitelisted by `install.bat`) presets **`ANTHROPIC_BASE_URL`** for DeepSeek or clears a leftover DeepSeek URL when switching back to Anthropic
 - `agent_prompt.md`: **SESSION TRANSCRIPT FILE** rules—the agent must append **verbatim** user and assistant text after each turn (full audit trail); session report may still summarize
 - `install.bat`: init message and `INIT_PROMPT` stress verbatim transcript logging per `agent_prompt.md`

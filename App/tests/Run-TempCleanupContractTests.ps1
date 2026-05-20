@@ -2,15 +2,16 @@
 # Copyright (c) 2026 Roshan Ruzaik
 # Part of PC Doctor - AI IT Support Agent
 #
-# Systematic contract tests: install.bat cwd vs Invoke-TempCleanup paths.
-# Run: powershell -NoProfile -ExecutionPolicy Bypass -File tests\Run-TempCleanupContractTests.ps1
+# Systematic contract tests: start/launcher cwd vs Invoke-TempCleanup paths.
+# Run: powershell -NoProfile -ExecutionPolicy Bypass -File App\tests\Run-TempCleanupContractTests.ps1
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$root = Split-Path -Parent $PSScriptRoot
-if (-not (Test-Path -LiteralPath (Join-Path $root "install.bat"))) {
-    throw "Run this script from the repo (expected install.bat in parent of tests\). Got root: $root"
+$appRoot = Split-Path -Parent $PSScriptRoot
+$root = Split-Path -Parent $appRoot
+if (-not (Test-Path -LiteralPath (Join-Path $root "start.bat"))) {
+    throw "Run this script from the repo (expected start.bat in project root). Got root: $root"
 }
 
 $out = Join-Path $root "outputs"
@@ -24,18 +25,18 @@ function Add-Result {
     $results.Add([pscustomobject]@{ Id = $Id; Pass = $Ok; Detail = $Detail }) | Out-Null
 }
 
-$scriptPath = Join-Path $root "Invoke-TempCleanup.ps1"
+$scriptPath = Join-Path $root "App\scripts\Invoke-TempCleanup.ps1"
 
-$batRaw = Get-Content -LiteralPath (Join-Path $root "install.bat") -Raw
-Add-Result "T1_install_cd_outputs" (
+$batRaw = Get-Content -LiteralPath (Join-Path $root "App\launcher.bat") -Raw
+Add-Result "T1_launcher_cd_outputs" (
     ($batRaw -match 'set "WORK_DIR=%OUTPUTS_DIR%"') -and ($batRaw -match 'cd /d "%WORK_DIR%"')
-) "install.bat must set WORK_DIR to outputs and cd there"
+) "launcher.bat must set WORK_DIR to outputs and cd there"
 
-Add-Result "T2_script_at_project_root" (Test-Path -LiteralPath $scriptPath) $scriptPath
+Add-Result "T2_script_in_app_scripts" (Test-Path -LiteralPath $scriptPath) $scriptPath
 
 Push-Location $out
 try {
-    Add-Result "T3_session_dotdot_script" (Test-Path -LiteralPath "..\Invoke-TempCleanup.ps1") "..\Invoke-TempCleanup.ps1 from outputs"
+    Add-Result "T3_session_dotdot_script" (Test-Path -LiteralPath "..\App\scripts\Invoke-TempCleanup.ps1") "..\App\scripts\Invoke-TempCleanup.ps1 from outputs"
     Add-Result "T4_no_dot_slash_in_outputs" (-not (Test-Path -LiteralPath ".\Invoke-TempCleanup.ps1")) ".\Invoke-TempCleanup.ps1 must not exist in outputs"
 } finally {
     Pop-Location
@@ -51,7 +52,7 @@ Push-Location $out
 try {
     $auditBefore = (Get-ChildItem -LiteralPath $out -Filter "temp_cleanup_audit_*.txt" -ErrorAction SilentlyContinue | Measure-Object).Count
     $argList = @(
-        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "..\Invoke-TempCleanup.ps1",
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "..\App\scripts\Invoke-TempCleanup.ps1",
         "-OutputDir", ".", "-WhatIf"
     )
     $p = Start-Process -FilePath "powershell.exe" -ArgumentList $argList -WorkingDirectory $out -Wait -PassThru
@@ -79,7 +80,7 @@ try {
 Push-Location $root
 try {
     $argList2 = @(
-        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\Invoke-TempCleanup.ps1",
+        "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ".\App\scripts\Invoke-TempCleanup.ps1",
         "-OutputDir", "outputs", "-WhatIf"
     )
     $p2 = Start-Process -FilePath "powershell.exe" -ArgumentList $argList2 -WorkingDirectory $root -Wait -PassThru
@@ -88,10 +89,10 @@ try {
     Pop-Location
 }
 
-$ap = Join-Path $root "agent_prompt.md"
+$ap = Join-Path $root "App\agent_prompt.md"
 $apRaw = Get-Content -LiteralPath $ap -Raw
-$dotDotHits = [regex]::Matches($apRaw, '\.\.\\Invoke-TempCleanup\.ps1').Count
-Add-Result "T11_prompt_documents_dotdot_path" ($dotDotHits -ge 3) "..\Invoke-TempCleanup.ps1 occurrences: $dotDotHits (expect >= 3 for session examples)"
+$dotDotHits = [regex]::Matches($apRaw, '\.\.\\App\\scripts\\Invoke-TempCleanup\.ps1').Count
+Add-Result "T11_prompt_documents_dotdot_path" ($dotDotHits -ge 3) "..\App\scripts\Invoke-TempCleanup.ps1 occurrences: $dotDotHits (expect >= 3 for session examples)"
 
 $failed = ($results | Where-Object { -not $_.Pass } | Measure-Object).Count
 $passed = ($results | Where-Object { $_.Pass } | Measure-Object).Count

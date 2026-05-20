@@ -1,0 +1,18 @@
+{
+  "defaultMode": "acceptEdits",
+  "permissions": {
+    "allow": [
+      "Read(./**)",
+      "Edit(./**)",
+      "Write(./**)",
+      "Read(../App/**)",
+      "Edit(../outputs/**)",
+      "Write(../outputs/**)",
+      "Bash(powershell.exe *)",
+      "Bash(powershell *)",
+      "Bash(hostname)",
+      "Bash(winget *)"
+    ],
+    "deny": []
+  }
+}
