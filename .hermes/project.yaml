@@ -1,0 +1,27 @@
+name: "PC Doctor AI"
+repo: "github.com/mrmroshan/PC-Doctor-AI-IT-Support-Agent"
+stack: powershell
+framework: claude-code
+test_command: ""
+lint_command: ""
+format_command: ""
+type_check_command: ""
+quality_gates:
+  lint_errors: 0
+  type_errors: 0
+  test_pass_rate: 100
+  new_code_coverage: 90
+  overall_coverage: 70
+  security_critical: 0
+  security_high: 0
+deploy_target: local-desktop
+production_url: ""
+owner_involvement: standard
+description: |
+  Supervised Windows IT assistant powered by Claude Code.
+  PowerShell scripts for diagnostics, audits, and system
+  health reporting. One-click launcher (start.bat).
+disabled_agents: []
+services:
+  - Windows
+  - Claude Code
